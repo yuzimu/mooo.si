@@ -72,7 +72,9 @@ def _crawl_domain(items):
             health = {"at": store.now()}
             try:
                 fp = t.get("fp") if t.get("fp_at") and store.now() - t["fp_at"].replace(tzinfo=store.now().tzinfo) < timedelta(days=7) \
-                    else fingerprint(c, t)
+                    else None
+                if not fp:
+                    fp = fingerprint(c, t)
                 upd = {"fp": fp, "fp_at": store.now(), "status": fp["status"], "priority": priority(t)}
                 if fp.get("platform"): upd["platform"] = fp["platform"]
                 if fp.get("name") and not t.get("name"): upd["name"] = fp["name"][:80]
@@ -105,10 +107,7 @@ def run_targeted(limit=None):
     col = store.db().targets
     with client(headers={"User-Agent": config.BROWSER_UA}) as c:
         _merge_catfk_items(c)
-    # 链动小铺/微店云铺 全站 ESA 滑块：直接批量标记跳过，不占抓取配额、不发请求
-    col.update_many({"platform": "ldxp"}, {"$set": {"status": "blocked_captcha", "fp": {"platform": "ldxp", "status": "blocked_captcha",
-                    "note": "阿里云 ESA 滑块，跳过；商品经 kawanghub/aigood 间接覆盖"}}})
-    cand = list(col.find({"type": {"$in": ["card_shop", "relay", "unknown"]}, "pending_item": {"$exists": False}, "platform": {"$ne": "ldxp"},
+    cand = list(col.find({"type": {"$in": ["card_shop", "relay", "unknown"]}, "pending_item": {"$exists": False},
                           "status": {"$nin": ["item_gone", "ignored"]}}))
     for t in cand: t["_prio"] = priority(t)
     cand.sort(key=lambda t: -t["_prio"])
