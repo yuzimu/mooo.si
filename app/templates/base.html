@@ -35,10 +35,10 @@ colors:{ink:{950:'#05070d',900:'#0a0e1a',850:'#0e1322',800:'#131a2c',700:'#1c254
       <span class="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-sky-400 via-violet-500 to-fuchsia-500 text-sm font-black text-white shadow-lg shadow-violet-500/30">m</span>
       <span class="text-[17px] font-bold tracking-tight">mooo<span class="text-violet-500">.</span>si</span>
     </a>
-    {% set nav=[('/', '报价雷达', ''), ('/?section=cards#market', '卡网', 'cards'), ('/?section=relay#market', '中转', 'relay'), ('/?section=tools#market', 'AI 工具', 'tools'), ('/about', '关于', 'about')] %}
+    {% set nav=[('/', '报价雷达', ''), ('/shops', '卡网', 'shops'), ('/relays', '中转', 'relays'), ('/tg', 'TG', 'tgp'), ('/?section=tools#market', 'AI 工具', 'tools'), ('/about', '关于', 'about')] %}
     <nav class="hidden items-center gap-1 md:flex">
       {% for href,label,key in nav %}
-      {% set active = (key=='' and request.url.path=='/' and not section) or (key and key==section) or (key=='about' and request.url.path=='/about') %}
+      {% set p = request.url.path %}{% set active = (key=='' and p=='/' and not section) or (key=='tools' and section=='tools') or (key=='about' and p=='/about') or (key=='shops' and p=='/shops') or (key=='relays' and p=='/relays') or (key=='tgp' and p=='/tg') %}
       <a href="{{ href }}" class="rounded-lg px-3 py-1.5 text-sm font-medium transition {{ 'bg-slate-900/5 text-slate-900 dark:bg-white/10 dark:text-white' if active else 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white' }}">{{ label }}</a>
       {% endfor %}
     </nav>

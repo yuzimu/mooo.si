@@ -57,3 +57,32 @@ source, product, category, title, price, currency, seller, url, in_stock, stock,
 中文搜索：Mongo 自带 text 索引不支持中文分词，因此写入时对 product/title/seller/tags 做归一化（小写、全角斜杠等），
 生成 CJK 单字 + 双字 n-gram、英文/数字整词及前缀，存入 `kw`；查询时 CJK 取双字、英文取整词，用 `$all` 命中多键索引。
 支持 `/api/search?q=&category=&source=&in_stock=&min_price=&max_price=&sort=price|-price|new&limit=&offset=`，页面 `/search` 同样走 Mongo。
+
+## v0.5 两阶段管线（发现 → 定向抓取）
+每 2 小时一轮（cron `*/2:07` + 0–10 分钟抖动），流程：代理检查（fail closed）→ 聚合源适配器 → 阶段一发现 → 阶段二定向抓取 → 跨源去重。
+
+### 阶段一：发现（`app/discovery/`，可插拔 `DiscoverySource.discover() -> (url, type_hint, context, seen_at)`）
+| 渠道 | id | 频率 | 说明 |
+|---|---|---|---|
+| 聚合站报价链接 | offers | 每轮 | priceai / aigood / apinav cards / kawanghub 商品链接与店铺链接 |
+| ApiNav 中转目录 | apinav-sites | 12h | 162 个中转站 targetUrl |
+| kawanghub 店铺 | kawanghub-shops | 12h | 679 店铺 + 店铺 TG |
+| TG 采集器 | tg-collector | 每轮 | `/opt/tg-collector/messages.db` 只读（`mode=ro&immutable=1`），提取 URL / t.me / 店铺链接 |
+| TG 公开频道预览 | tg-preview | 24h | `t.me/s/<name>`，群组 302 自动跳过并标记 private |
+| GitHub 列表 | github-lists | 24h | GITHUB_LIST_URLS 中的 awesome Markdown |
+| 搜索引擎指纹 | search | 24h | Brave API（需 BRAVE_API_KEY），查询 New API 页脚、catfk/ldxp 店铺 |
+
+规范化：`catfk:<token>` / `ldxp:<token>`（店铺）、`catfk:item:<key>`（抓取时解析为店铺后合并）、`tg:<name>`、`web:<host>`。
+`targets` 集合字段：type(relay/card_shop/tg/unknown)、platform、url、sources{渠道: 次数}、mentions、first_seen/last_seen、status、fp、health、history(最近 10 次)、priority。
+
+### 阶段二：定向抓取（`app/platforms/`）
+- 指纹：`/api/status`（new-api/one-api）、HTML 特征（shopApi=链动系、dujiaoka、acg-faka）、ESA/阿里云验证 → blocked_captcha、CF 挑战 → blocked_cf、5xx/超时 → down。指纹 7 天内复用。
+- 适配器：**catfk**（`/shopApi/Shop/goodsList` JSON，每目标 ≤5 页）、**new-api/one-api**（`/api/pricing` JSON；重点模型写 offers，完整表写 `relay_prices`；304 视为未变化）。
+- ldxp/微店云铺：全站 ESA 滑块 → 批量标记 blocked_captcha，不发请求（商品经 kawanghub/aigood 间接覆盖）。
+- 调度：priority = log2(提及)×10 + 新鲜度 + 渠道数×3；6 小时内成功抓过的目标跳过；每轮 ≤120 个目标。
+- 带宽与并发：全局 4 并发、同域名串行 + 2s 间隔；GET 自动 ETag/If-Modified-Since（`http_cache`），304 复用缓存正文；只抓 JSON/HTML 不下载资源；浏览器模式屏蔽 image/media/font/stylesheet；每轮写 `pipeline_runs.result.traffic`（字节、请求数、304 数、Top 域名）。
+- 代理：**所有抓取流量强制走 resin 代理池**（`PROXY_REQUIRED=1`，账号 `Default.mooo`），代理不可用则整轮停止。
+- 去重：`dedupe_key = host+path`；直连抓到的（catfk/relay）优先，聚合源中同链接报价标记 `dup`，聚合源之间同链接只保留最新一条。
+
+### 下一步渠道
+linux.do 公开帖（Cloudflare 403，需 CDP 浏览器 + 代理）、16688.com.cn 等卡网平台适配、独角数卡/异次元 商品页解析、FOFA/Hunter 指纹测绘、更多导航站（如 ai-bot.cn、各类 API 中转导航）、TG 频道更多公开预览。

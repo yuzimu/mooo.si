@@ -3,8 +3,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request, Query
 from fastapi.templating import Jinja2Templates
 from . import config
-from . import store
-from .crawler import run_all
+from . import store, targets
 from .schema import CATEGORIES, SECTIONS
 from . import views
 
@@ -14,14 +13,18 @@ templates.env.globals.update(cat_meta=views.cat_meta, SECTIONS=SECTIONS)
 
 @asynccontextmanager
 async def lifespan(app):
-    store.ensure_indexes()
+    store.ensure_indexes(); targets.ensure_indexes()
     sched = None
     if config.ENABLE_SCHEDULER:
         from apscheduler.schedulers.background import BackgroundScheduler
         from datetime import datetime
-        sched = BackgroundScheduler(timezone="UTC")
-        sched.add_job(run_all, "interval", minutes=config.CRAWL_INTERVAL_MIN,
-                      next_run_time=datetime.now(), max_instances=1, coalesce=True)
+        from . import pipeline
+        sched = BackgroundScheduler(timezone=config.TZ)
+        # 每 CRAWL_EVERY_HOURS 小时一轮（默认 2h，整点 + 0~10 分钟抖动）：代理检查 → 聚合源 → 发现 → 定向抓取 → 去重
+        sched.add_job(pipeline.cycle, "cron", hour=f"*/{config.CRAWL_EVERY_HOURS}", minute=7, jitter=600,
+                      max_instances=1, coalesce=True, misfire_grace_time=3600, id="cycle")
+        if store.db().offers.estimated_document_count() == 0:  # 首次启动空库时立即跑一轮
+            sched.add_job(pipeline.cycle, next_run_time=datetime.now())
         sched.start()
     yield
     if sched: sched.shutdown(wait=False)
@@ -87,3 +90,38 @@ def search_page(request: Request, q: str = "", category: str = "", source: str =
 @app.get("/about")
 def about(request: Request):
     return templates.TemplateResponse(request, "about.html", {})
+
+TARGET_PAGES = {"shops": ("card_shop", "卡网店铺", "store"), "relays": ("relay", "API 中转站", "network"),
+                "tg": ("tg", "TG 群组 / 频道", "send")}
+
+def _target_ctx(kind, q, platform, status, page):
+    ttype, title, icon = TARGET_PAGES[kind]
+    per = 30
+    items, total = targets.search(type=ttype, q=q or None, platform=platform or None, status=status or None,
+                                  limit=per, skip=(max(page, 1) - 1) * per)
+    plats = sorted({d for d in store.db().targets.distinct("platform", {"type": ttype}) if d})
+    stats = list(store.db().targets.aggregate([{"$match": {"type": ttype}}, {"$group": {"_id": "$status", "n": {"$sum": 1}}}]))
+    return {"kind": kind, "title": title, "icon": icon, "items": items, "total": total, "q": q, "platform": platform,
+            "status": status, "page": max(page, 1), "per": per, "platforms": plats,
+            "status_counts": {d["_id"] or "new": d["n"] for d in stats}}
+
+@app.get("/shops")
+def shops_page(request: Request, q: str = "", platform: str = "", status: str = "", page: int = 1):
+    return templates.TemplateResponse(request, "targets.html", _target_ctx("shops", q, platform, status, page))
+
+@app.get("/relays")
+def relays_page(request: Request, q: str = "", platform: str = "", status: str = "", page: int = 1):
+    return templates.TemplateResponse(request, "targets.html", _target_ctx("relays", q, platform, status, page))
+
+@app.get("/tg")
+def tg_page(request: Request, q: str = "", platform: str = "", status: str = "", page: int = 1):
+    return templates.TemplateResponse(request, "targets.html", _target_ctx("tg", q, platform, status, page))
+
+@app.get("/api/targets")
+def api_targets(type: str = "", q: str = "", platform: str = "", status: str = "",
+                limit: int = Query(50, le=500), offset: int = Query(0, ge=0)):
+    items, total = targets.search(type=type or None, q=q or None, platform=platform or None, status=status or None,
+                                  limit=limit, skip=offset)
+    for d in items:
+        d["id"] = d.pop("_id"); d.pop("history", None); d.pop("refs", None)
+    return {"total": total, "items": items}

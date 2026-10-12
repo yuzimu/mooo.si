@@ -56,6 +56,9 @@ def ensure_indexes():
     d.raw.create_index([("source", ASCENDING), ("fetched_at", DESCENDING)])
     d.raw.create_index("fetched_at", expireAfterSeconds=int(timedelta(days=config.RAW_RETENTION_DAYS).total_seconds()))
     d.crawl_runs.create_index([("started_at", DESCENDING)])
+    d.offers.create_index([("target", ASCENDING)])
+    d.offers.create_index([("dedupe_key", ASCENDING)])
+    d.offers.create_index([("dup", ASCENDING), ("category", ASCENDING), ("price", ASCENDING)])
 
 def save_run(source: str, offers: list[dict], raw=None, error=None):
     d = db(); ts = now()
@@ -64,18 +67,32 @@ def save_run(source: str, offers: list[dict], raw=None, error=None):
         if raw is not None: d.raw.insert_one({"source": source, "fetched_at": ts, "payload": raw})
         docs = []
         for o in offers:
-            o = dict(o); o["fetched_at"] = ts
+            o = dict(o); o["fetched_at"] = ts; o["dedupe_key"] = _dkey(o.get("url"))
             o["kw"] = sorted(tokens(" ".join([o.get("product") or "", o.get("title") or "",
                                               o.get("seller") or "", " ".join(o.get("tags") or [])])))
             docs.append(o)
-        d.offers.delete_many({"source": source})   # 每个来源保留最新快照
+        d.offers.delete_many({"source": source, "target": {"$exists": False}})   # 每个来源保留最新快照
         if docs: d.offers.insert_many(docs)
     d.crawl_runs.insert_one(run)
     return SimpleNamespace(**run)
 
+def _dkey(url):
+    from .pipeline import dedupe_key
+    return dedupe_key(url)
+
+def save_target_offers(target_id: str, offers: list[dict]):
+    d = db(); ts = now(); docs = []
+    for o in offers:
+        o = dict(o); o["fetched_at"] = ts; o["target"] = target_id; o["dedupe_key"] = _dkey(o.get("url"))
+        o["kw"] = sorted(tokens(" ".join([o.get("product") or "", o.get("title") or "", o.get("seller") or "",
+                                          " ".join(o.get("tags") or [])])))
+        docs.append(o)
+    d.offers.delete_many({"target": target_id})
+    if docs: d.offers.insert_many(docs)
+
 def build_filter(q=None, category=None, source=None, in_stock=False, categories=None,
                  min_price=None, max_price=None):
-    f = {}
+    f = {"dup": {"$ne": True}}
     if q:
         qt = query_tokens(q)
         f["kw"] = {"$all": qt} if qt else {"$exists": True}
@@ -95,7 +112,8 @@ def search(limit=200, sort="price", skip=0, **kw):
     return [_ns(d) for d in cur], db().offers.count_documents(f)
 
 def all_offers(categories=None):
-    f = {"category": {"$in": list(categories)}} if categories is not None else {}
+    f = {"dup": {"$ne": True}}
+    if categories is not None: f["category"] = {"$in": list(categories)}
     return [_ns(d) for d in db().offers.find(f, {"kw": 0})]
 
 def recent_runs(n=20):

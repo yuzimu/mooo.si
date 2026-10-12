@@ -19,3 +19,19 @@ OAI9_HOT_URL = os.getenv("OAI9_HOT_URL", "")
 LDXP_MERCHANT_TOKEN = os.getenv("LDXP_MERCHANT_TOKEN", "")
 LDXP_MERCHANT_KEYWORDS = [k for k in os.getenv("LDXP_MERCHANT_KEYWORDS", "gemini,claude,plus,gcp").split(",") if k]
 GROUPS_PER_PAGE = int(os.getenv("GROUPS_PER_PAGE", "12"))
+TG_DB_PATH = os.getenv("TG_DB_PATH", "")            # 只读挂载的 tg-collector messages.db
+TG_PREVIEW_MAX = int(os.getenv("TG_PREVIEW_MAX", "40"))
+GITHUB_LIST_URLS = [u for u in os.getenv("GITHUB_LIST_URLS",
+    "https://raw.githubusercontent.com/LiLittleCat/awesome-free-chatgpt/main/README.md").split(",") if u]
+BRAVE_API_KEY = os.getenv("BRAVE_API_KEY", "")
+DAILY_HOUR = int(os.getenv("DAILY_HOUR", "4"))         # Asia/Shanghai
+DAILY_MINUTE = int(os.getenv("DAILY_MINUTE", "0"))
+TZ = os.getenv("TZ_NAME", "Asia/Shanghai")
+TARGET_CRAWL_MAX = int(os.getenv("TARGET_CRAWL_MAX", "120"))   # 每轮最多目标数
+TARGET_WORKERS = int(os.getenv("TARGET_WORKERS", "4"))   # 全局并发上限；同域名串行
+DOMAIN_DELAY = float(os.getenv("DOMAIN_DELAY", "2.0"))
+RELAY_FEATURED = os.getenv("RELAY_FEATURED", r"gpt-5|gpt-4o|o3|claude|gemini|grok|deepseek|nano-banana|image|veo|sora")
+PROXY_REQUIRED = os.getenv("PROXY_REQUIRED", "0") == "1"   # 生产=1：无代理则不抓
+CRAWL_EVERY_HOURS = int(os.getenv("CRAWL_EVERY_HOURS", "2"))
+MAX_PAGES_PER_TARGET = int(os.getenv("MAX_PAGES_PER_TARGET", "5"))
+TARGET_MIN_INTERVAL_H = float(os.getenv("TARGET_MIN_INTERVAL_H", "6"))   # 同一目标两次抓取最小间隔

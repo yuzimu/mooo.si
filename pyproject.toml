@@ -4,7 +4,7 @@ version = "0.2.0"
 requires-python = ">=3.11"
 
 [tool.ruff]
-line-length = 130
+line-length = 160
 [tool.ruff.lint]
 select = ["E", "F", "W", "B"]
 ignore = ["E701", "E702", "E401", "B008"]
