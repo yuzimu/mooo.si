@@ -107,8 +107,8 @@ def apply_junk_and_category(batch_limit=50000):
         if reason:
             upd.update(junk=True, junk_reason=reason)
             n_junk += 1
-        else:
-            if o.get("junk"): upd["junk"] = False
+        elif o.get("junk"):
+            d.offers.update_one({"_id": o["_id"]}, {"$unset": {"junk": 1, "junk_reason": 1}})
         cat = guess_category(text)
         subs = guess_subtypes(text)
         if cat != o.get("category"):
@@ -154,7 +154,29 @@ def probe_links(limit=80, workers=3, delay=1.2):
         if wait > 0: time.sleep(wait)
         last[h] = time.time()
         try:
+            host = (urlsplit(u).hostname or "").lower()
+            # 链动/错图小铺等 ESA 滑块站：不浪费探活配额，靠聚合源 in_stock
+            if any(host == x or host.endswith("." + x) for x in ("wzyp.cn", "ldxp.cn", "pay.ldxp.cn", "ldxp.net")):
+                d.offers.update_one({"_id": o["_id"]}, {"$set": {"link_status": "captcha_host", "link_checked_at": store.now()}})
+                return "captcha_host"
             with client(headers={"User-Agent": config.BROWSER_UA}) as c:
+                # CATFK：JSON API 比 SPA HTML 可靠
+                m = re.search(r"catfk\.com/item/([A-Za-z0-9_-]+)", u)
+                if m:
+                    r = c.get("https://catfk.com/shopApi/Shop/goodsInfo", params={"link": m.group(1)}, timeout=15)
+                    try: j = r.json()
+                    except Exception: j = {}
+                    msg = str(j.get("msg") or "")
+                    if "不存在" in msg or "下架" in msg or j.get("data") is None and j.get("code") == 0:
+                        v = "off_shelf"
+                    elif j.get("data"):
+                        v = "ok"
+                    else:
+                        v = "unknown"
+                    upd = {"link_status": v, "link_checked_at": store.now(), "link_api": "catfk.goodsInfo"}
+                    if v == "off_shelf": upd.update(off_shelf=True, off_shelf_at=store.now())
+                    elif v == "ok": upd["off_shelf"] = False
+                    d.offers.update_one({"_id": o["_id"]}, {"$set": upd}); return v
                 try:
                     r = c.head(u, follow_redirects=True, timeout=15)
                     if r.status_code >= 400 or r.status_code in (405, 403) or "text/html" in (r.headers.get("content-type") or ""):
