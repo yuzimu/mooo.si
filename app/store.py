@@ -80,15 +80,16 @@ def save_run(source: str, offers: list[dict], raw=None, error=None, partial=Fals
         docs = []
         for o in offers:
             o = dict(o); o["fetched_at"] = ts; o["dedupe_key"] = _dkey(o.get("url"))
-            from .quality import product_key, canonical_product, guess_category
+            from .quality import product_key, canonical_product, guess_category, collapse_repeats
             text = f'{o.get("product") or ""} {o.get("title") or ""}'
             if o.get("source") == "relay":
                 import re as _re
                 o["category"] = "image-api" if _re.search(r"image|dall|flux|seedream|veo|kling|imagine|banana|jimeng", text, _re.I) else "api-relay"
             else:
                 o["category"] = guess_category(text)
+                if o["category"] in ("api-relay", "image-api"): o["category"] = "api-credit"
             o["product_key"] = product_key(text)
-            o["product"] = canonical_product(o.get("title") or text) or (o.get("title") or o.get("product") or "")[:80]
+            o["product"] = canonical_product(o.get("title") or text) or collapse_repeats(o.get("title") or o.get("product") or "")[:80]
             o["kw"] = sorted(tokens(" ".join([o.get("product") or "", o.get("title") or "",
                                               o.get("seller") or "", " ".join(o.get("tags") or [])])))
             docs.append(o)
@@ -114,15 +115,16 @@ def save_target_offers(target_id: str, offers: list[dict]):
     d = db(); ts = now(); docs = []
     for o in offers:
         o = dict(o); o["fetched_at"] = ts; o["target"] = target_id; o["dedupe_key"] = _dkey(o.get("url"))
-        from .quality import product_key, canonical_product, guess_category
+        from .quality import product_key, canonical_product, guess_category, collapse_repeats
         text = f'{o.get("product") or ""} {o.get("title") or ""}'
         if o.get("source") == "relay":
             import re as _re
             o["category"] = "image-api" if _re.search(r"image|dall|flux|seedream|veo|kling|imagine|banana|jimeng", text, _re.I) else "api-relay"
         else:
             o["category"] = guess_category(text)
+            if o["category"] in ("api-relay", "image-api"): o["category"] = "api-credit"
         o["product_key"] = product_key(text)
-        o["product"] = canonical_product(o.get("title") or text) or (o.get("title") or o.get("product") or "")[:80]
+        o["product"] = canonical_product(o.get("title") or text) or collapse_repeats(o.get("title") or o.get("product") or "")[:80]
         o["kw"] = sorted(tokens(" ".join([o.get("product") or "", o.get("title") or "", o.get("seller") or "",
                                           " ".join(o.get("tags") or [])])))
         docs.append(o)

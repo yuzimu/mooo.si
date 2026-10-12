@@ -15,6 +15,7 @@ JUNK_ZERO = re.compile(r"(免费领取|0元购|零元|面议|联系客服询价)
 def is_junk(o: dict) -> str | None:
     title = (o.get("title") or "") + " " + (o.get("product") or "")
     if JUNK_TITLE.search(title): return "教程/须知/公告/测试类非商品"
+    if re.fullmatch(r"\s*(测试|test|tests?|测试\d*|111+|aaa+|123+)\s*", o.get("title") or "", re.I): return "测试占位"
     price = o.get("price")
     if price is not None and price <= 0:
         return "价格≤0 占位" if not JUNK_ZERO.search(title) else "免费领取/面议占位"
@@ -159,7 +160,18 @@ def product_key(text: str) -> str:
         return f"relay:{(m.group(1) if m else t[:40]).lower()}"
 
     parts = [brand or "misc", form or guess_category(t), tier, dur]
+    if not brand:   # 无品牌：附加标题指纹，避免无关商品被并成一团
+        slug = re.sub(r"[\W_]+", "", collapse_repeats(t).lower())[:24]
+        parts.append(slug or "x")
     return ":".join(p for p in parts if p)
+
+
+def collapse_repeats(t: str) -> str:
+    """'A A A A' → 'A'（部分源标题被重复拼接）。"""
+    t = re.sub(r"\s+", " ", (t or "").strip())
+    m = re.fullmatch(r"(.{2,80}?)(?: \1)+(?: .{0,80})?", t)
+    if m and t.startswith(m.group(1) + " " + m.group(1)): return m.group(1)
+    return t
 
 def canonical_product(text: str) -> str:
     """给人看的短名，来自 product_key。"""
@@ -239,19 +251,22 @@ def apply_junk_and_category(batch_limit=100000):
         else:
             cat = guess_category(text)
         key = product_key(text)
+        card_api = o.get("source") != "relay"
         # product_key 形态优先：避免「未接码」等误伤导致分类漂移
         form = (key.split(":")[1] if ":" in key else "")
         form_to_cat = {"email": "email", "verify": "verify", "topup": "topup", "family": "family",
                        "account": "account", "payment": "payment", "social": "social"}
         if form in form_to_cat:
             cat = form_to_cat[form]
+        if card_api and cat in ("api-relay", "image-api"):
+            cat = "api-credit"   # 卡网卖的 API 额度/兑换码 ≠ 中转模型价，硬隔离
         name = canonical_product(text)
         subs = guess_subtypes(text)
         if cat != o.get("category"):
             upd["category"] = cat; n_cat += 1
         if key != o.get("product_key"):
             upd["product_key"] = key; n_key += 1
-        name = name or (o.get("title") or "")[:80]
+        name = name or collapse_repeats(o.get("title") or "")[:80]
         if name != o.get("product"):
             upd["product"] = name
         tags = list(dict.fromkeys([*(o.get("tags") or []), *subs]))
