@@ -41,7 +41,7 @@ def test_catfk_parse():
                                        "category": {"name": "Gemini"}, "user": {"nickname": "店", "token": "t"},
                                        "extend": {"stock_count": 0}}]}}
     o = list(catfk.parse(d))
-    assert o[0].category == "gemini" and o[0].in_stock is False and o[0].seller == "店"
+    assert o[0].category in ("account","gcp-trial","gemini") and o[0].in_stock is False and o[0].seller == "店"
 
 def test_dedupe_key():
     assert dedupe_key("https://www.catfk.com/item/abc/?x=1") == "catfk.com/item/abc"

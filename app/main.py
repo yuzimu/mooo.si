@@ -66,7 +66,14 @@ def api_offers(q: str | None = None, category: str | None = None, in_stock: bool
 @app.get("/")
 def index(request: Request, q: str = "", category: str = "", source: str = "", section: str = "",
           in_stock: bool = False, sort: str = "featured", page: int = 1, partial: bool = False):
+    # 中转与卡网硬隔离：中转栏目走 /models /relays，不在报价列表里塞模型价
+    if section == "relay" and not partial:
+        return RedirectResponse("/models", status_code=302)
+    if category in ("api-relay", "image-api") and not partial:
+        return RedirectResponse("/models" if category == "image-api" else "/relays", status_code=302)
     cats = {c for c, m in CATEGORIES.items() if m[2] == section} if section in SECTIONS else None
+    if cats and ("api-relay" in cats or "image-api" in cats):
+        cats = {c for c in cats if c not in ("api-relay", "image-api")} or None
     base = store.all_offers(cats)
     offers, total = store.search(limit=3000, sort="price", categories=cats,
                                  **_params(q, category, source, in_stock, None, None))

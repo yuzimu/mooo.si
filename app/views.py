@@ -35,12 +35,16 @@ def cat_meta(c):
 
 def group_products(offers, sort="featured"):
     g = defaultdict(list)
-    for o in offers: g[o.product].append(o)
+    for o in offers:
+        # 优先 product_key 聚合同款（谷歌邮箱/Gmail新号/谷歌免费号 → 同一组）
+        key = getattr(o, "product_key", None) or o.product or o.title
+        g[key].append(o)
     groups = []
-    for name, items in g.items():
+    for key, items in g.items():
         items.sort(key=lambda o: (not o.in_stock, o.price))
         prices = [o.price for o in items]
-        groups.append({"name": name, "category": items[0].category, "tags": items[0].tags or [],
+        name = items[0].product or items[0].title
+        groups.append({"name": name, "key": key, "category": items[0].category, "tags": items[0].tags or [],
                        "offers": items, "min": min(prices), "max": max(prices),
                        "currency": items[0].currency, "in_stock": sum(1 for o in items if o.in_stock),
                        "updated": max((o.fetched_at for o in items), default=None)})

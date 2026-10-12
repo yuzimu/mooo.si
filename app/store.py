@@ -68,6 +68,15 @@ def save_run(source: str, offers: list[dict], raw=None, error=None, partial=Fals
         docs = []
         for o in offers:
             o = dict(o); o["fetched_at"] = ts; o["dedupe_key"] = _dkey(o.get("url"))
+            from .quality import product_key, canonical_product, guess_category
+            text = f'{o.get("product") or ""} {o.get("title") or ""}'
+            if o.get("source") == "relay":
+                import re as _re
+                o["category"] = "image-api" if _re.search(r"image|dall|flux|seedream|veo|kling|imagine|banana|jimeng", text, _re.I) else "api-relay"
+            else:
+                o["category"] = guess_category(text)
+            o["product_key"] = product_key(text)
+            o["product"] = canonical_product(text) or o.get("product") or (o.get("title") or "")[:80]
             o["kw"] = sorted(tokens(" ".join([o.get("product") or "", o.get("title") or "",
                                               o.get("seller") or "", " ".join(o.get("tags") or [])])))
             docs.append(o)
@@ -93,6 +102,15 @@ def save_target_offers(target_id: str, offers: list[dict]):
     d = db(); ts = now(); docs = []
     for o in offers:
         o = dict(o); o["fetched_at"] = ts; o["target"] = target_id; o["dedupe_key"] = _dkey(o.get("url"))
+        from .quality import product_key, canonical_product, guess_category
+        text = f'{o.get("product") or ""} {o.get("title") or ""}'
+        if o.get("source") == "relay":
+            import re as _re
+            o["category"] = "image-api" if _re.search(r"image|dall|flux|seedream|veo|kling|imagine|banana|jimeng", text, _re.I) else "api-relay"
+        else:
+            o["category"] = guess_category(text)
+        o["product_key"] = product_key(text)
+        o["product"] = canonical_product(text) or o.get("product") or (o.get("title") or "")[:80]
         o["kw"] = sorted(tokens(" ".join([o.get("product") or "", o.get("title") or "", o.get("seller") or "",
                                           " ".join(o.get("tags") or [])])))
         docs.append(o)
@@ -100,14 +118,22 @@ def save_target_offers(target_id: str, offers: list[dict]):
     if docs: d.offers.insert_many(docs)
 
 def build_filter(q=None, category=None, source=None, in_stock=False, categories=None,
-                 min_price=None, max_price=None):
+                 min_price=None, max_price=None, include_relay=False):
+    """默认剔除中转模型价（source=relay）。卡网是卡网，中转是中转。"""
     f = {"dup": {"$ne": True}, "ignored": {"$ne": True}, "junk": {"$ne": True},
          "off_shelf": {"$ne": True}, "no_url": {"$ne": True}}
+    if not include_relay and source != "relay":
+        f["source"] = {"$ne": "relay"}
     if q:
         qt = query_tokens(q)
         f["kw"] = {"$all": qt} if qt else {"$exists": True}
-    if category: f["category"] = category
-    elif categories is not None: f["category"] = {"$in": list(categories)}
+    if category:
+        f["category"] = category
+    elif categories is not None:
+        f["category"] = {"$in": list(categories)}
+    else:
+        # 首页默认不展示中转类目（即使有误标的卡网行）
+        f["category"] = {"$nin": ["api-relay", "image-api"]}
     if source: f["source"] = source
     if in_stock: f["in_stock"] = True
     if min_price is not None or max_price is not None:
@@ -121,10 +147,12 @@ def search(limit=200, sort="price", skip=0, **kw):
     cur = db().offers.find(f, {"kw": 0}).sort(SORTS.get(sort, SORTS["price"])).skip(skip).limit(limit)
     return [_ns(d) for d in cur], db().offers.count_documents(f)
 
-def all_offers(categories=None):
+def all_offers(categories=None, include_relay=False):
     f = {"dup": {"$ne": True}, "ignored": {"$ne": True}, "junk": {"$ne": True},
          "off_shelf": {"$ne": True}, "no_url": {"$ne": True}}
+    if not include_relay: f["source"] = {"$ne": "relay"}
     if categories is not None: f["category"] = {"$in": list(categories)}
+    elif not include_relay: f["category"] = {"$nin": ["api-relay", "image-api"]}
     return [_ns(d) for d in db().offers.find(f, {"kw": 0})]
 
 def recent_runs(n=20):

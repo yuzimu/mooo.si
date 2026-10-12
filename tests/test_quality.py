@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from fastapi.testclient import TestClient
 from app.main import app
-from app.quality import guess_category, guess_subtypes, is_junk, classify_page, apply_junk_and_category, hide_no_url
+from app.quality import guess_category, is_junk, classify_page, apply_junk_and_category, hide_no_url, product_key
 from app import store
 
 
@@ -12,9 +12,11 @@ def test_categorizer_accuracy():
     assert ok / len(labels) >= 0.85, f"accuracy {ok}/{len(labels)}"
     for L in labels:
         if L.get("junk"): assert is_junk({"title": L["title"], "price": 1})
-        if L.get("sub"):
-            got = guess_subtypes(L["title"])
-            assert any(s in got for s in L["sub"]), (L["title"], got)
+        if L.get("key"): assert product_key(L["title"]).startswith(L["key"]), (L["title"], product_key(L["title"]))
+        if L.get("key_prefix"): assert product_key(L["title"]).startswith(L["key_prefix"]), (L["title"], product_key(L["title"]))
+    # 谷歌免费账号簇必须归一
+    keys = {product_key(t) for t in ["谷歌免费账号", "Gmail新号", "谷歌邮箱", "Gmail邮箱/2FA/随机地区"]}
+    assert len({k.split(":")[0] for k in keys}) == 1 and all(k.startswith("gmail") for k in keys)
 
 
 def test_off_shelf_patterns():
@@ -27,14 +29,14 @@ def test_off_shelf_patterns():
 def test_hide_junk_and_nourl():
     store.db().offers.delete_many({"source": "qa"})
     store.db().offers.insert_many([
-        {"source": "qa", "title": "Claude Team须知必看", "product": "x", "category": "claude", "price": 10, "url": "https://a.com/1"},
+        {"source": "qa", "title": "Claude Team须知必看", "product": "x", "category": "account", "price": 10, "url": "https://a.com/1"},
         {"source": "qa", "title": "GPT Plus 成品号", "product": "x", "category": "other", "price": 100, "url": "https://a.com/2"},
         {"source": "qa", "title": "Reddit账号", "product": "x", "category": "other", "price": 5, "url": None},
     ])
     apply_junk_and_category()
     hide_no_url()
     assert store.db().offers.find_one({"title": "Claude Team须知必看"})["junk"] is True
-    assert store.db().offers.find_one({"title": "GPT Plus 成品号"})["category"] == "chatgpt"
+    assert store.db().offers.find_one({"title": "GPT Plus 成品号"})["category"] == "account"
     assert store.db().offers.find_one({"title": "Reddit账号"})["no_url"] is True
     # visible search excludes them
     items, _ = store.search(limit=50)
@@ -58,3 +60,19 @@ def test_models_page():
     assert "gpt-4o" not in r.text  # image-only default
     assert c.get("/models/gpt-image-1").status_code == 200
     store.db().relay_prices.delete_one({"_id": "web:img.test"})
+
+
+def test_relay_never_on_home_or_search():
+    store.db().offers.delete_many({"source": {"$in": ["qa", "relay"]}})
+    store.save_run("qa", [{"source": "qa", "title": "GPT Plus 成品号", "product": "x", "category": "account",
+                           "price": 100, "currency": "CNY", "url": "https://shop.example.com/a", "seller": "s", "in_stock": True}])
+    store.db().offers.insert_one({"source": "relay", "title": "gpt-4o · $2/1M tokens", "product": "gpt-4o",
+                                  "category": "api-relay", "price": 2, "currency": "USD", "url": "https://relay.example/",
+                                  "seller": "r", "in_stock": True, "dup": None})
+    client = TestClient(app)
+    home = client.get("/").text
+    assert "gpt-4o" not in home and "1M tokens" not in home
+    assert "GPT Plus" in home or "成品号" in home
+    assert client.get("/c/api-relay", follow_redirects=False).status_code in (302, 307)
+    assert client.get("/?section=relay", follow_redirects=False).status_code in (302, 307)
+    store.db().offers.delete_many({"source": {"$in": ["qa", "relay"]}})

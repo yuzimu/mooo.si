@@ -1,11 +1,11 @@
-"""报价质量：垃圾过滤、分类、链接探活、下架检测。"""
+"""报价质量：垃圾过滤、封闭分类、product_key、链接探活、下架检测。"""
 import re
 from datetime import timedelta
 from urllib.parse import urlsplit
 from . import config, store
 from .net import client
 
-# —— 垃圾：教程/须知/公告/测试/占位 ——
+# —— 垃圾 ——
 JUNK_TITLE = re.compile(
     r"(教程|须知必看|购买须知|售后须知|使用说明|下单前必|请先看|看完再买|温馨提示|公告|通知|"
     r"测试商品|测一测|勿拍|不要拍|仅测试|占位|示例|demo\b|sample\b|"
@@ -13,68 +13,194 @@ JUNK_TITLE = re.compile(
 JUNK_ZERO = re.compile(r"(免费领取|0元购|零元|面议|联系客服询价)", re.I)
 
 def is_junk(o: dict) -> str | None:
-    """返回 junk 原因；None 表示保留。"""
     title = (o.get("title") or "") + " " + (o.get("product") or "")
     if JUNK_TITLE.search(title): return "教程/须知/公告/测试类非商品"
     price = o.get("price")
-    if price is not None and price <= 0 and not JUNK_ZERO.search(title):
-        return "价格≤0 占位"
-    if price is not None and price <= 0 and JUNK_ZERO.search(title):
-        return "免费领取/面议占位"
-    # 明确标注「勿拍」的说明贴
+    if price is not None and price <= 0:
+        return "价格≤0 占位" if not JUNK_ZERO.search(title) else "免费领取/面议占位"
     if re.search(r"勿拍|不要拍|仅展示|不发货", title): return "明示勿拍/仅展示"
     return None
 
-# —— 分类：有序规则 + 否定词；产品形态优先于品牌 ——
-# (category, positive_re, negative_re_or_None)
-# 子类写入 tags: 成品号/代充/家庭位/API/接码/邮箱
-SUB_RULES = [
-    ("家庭位", re.compile(r"家庭[组位]|family\s*slot|车位|拼车|共享位", re.I)),
-    ("代充", re.compile(r"代充|直充|官方充|cdk|卡密充|续费|订阅充|官方渠道.*充", re.I)),
-    ("成品号", re.compile(r"成品号|独享号|成品\b|账密|带2fa|已接马.*号|白号|普号", re.I)),
-    ("接码", re.compile(r"接码|接马|sms|验证码|实卡|手机号验证", re.I)),
-    ("邮箱", re.compile(r"邮箱|gmail|outlook|hotmail|icloud|edu\.|edu邮箱", re.I)),
-    ("API", re.compile(r"\bapi\b|中转|按量|额度|token|1m\s*token", re.I)),
-]
-
+# —— 封闭分类：形态优先 ——
+# 顺序很重要：更具体的在前
 CAT_RULES = [
-    # 更具体的在前
-    ("gcp-trial", re.compile(r"gcp|google\s*cloud|云试用", re.I), re.compile(r"教程|须知", re.I)),
-    ("nano-banana-api", re.compile(r"nano\s*banana|香蕉.*生图|生图\s*api|gpt-image|dall-?e|flux\b|seedream|imagen|midjourney", re.I), None),
-    ("adobe-firefly", re.compile(r"firefly|adobe\s*firefly", re.I), re.compile(r"教程", re.I)),
-    ("leonardo", re.compile(r"leonardo", re.I), re.compile(r"教程", re.I)),
-    ("verify", re.compile(r"接码|接马|kyc|实卡|短信验证|手机号验证|验证码收", re.I),
-     re.compile(r"成品号|代充|订阅", re.I)),
-    ("email", re.compile(r"(?<![a-z])(gmail|outlook|hotmail|icloud|edu\.?邮箱|教育邮箱|邮箱母号|邮箱账号|邮箱\b)", re.I),
-     re.compile(r"接码|接马|成品号.*plus|plus.*成品|代充|订阅", re.I)),
-    ("payment", re.compile(r"虚拟卡|礼品卡|visa\b|mastercard|paypal\s*卡|itunes", re.I),
-     re.compile(r"接码|接马|成品", re.I)),
-    ("api-relay", re.compile(r"中转|按量付费|api\s*额度|额度卡|token\s*额度|\bapi\b.*站|1m\s*token", re.I),
-     re.compile(r"成品号|代充|接码|邮箱", re.I)),
-    ("gemini", re.compile(r"gemini|google\s*ai|antigravity|反重力|ai\s*ultra", re.I),
-     re.compile(r"教程|须知|api\s*中转", re.I)),
-    ("grok", re.compile(r"\bgrok\b|supergro|xai\b", re.I), re.compile(r"教程|须知", re.I)),
-    ("claude", re.compile(r"claude|anthropic", re.I), re.compile(r"教程|须知|cursor", re.I)),
-    ("chatgpt", re.compile(r"chatgpt|chat\s*gpt|\bgpt\b|codex|openai|plus\b|pro\s*x?\d|team\b|business", re.I),
-     re.compile(r"教程|须知|claude|gemini|grok|cursor|kiro|gpt-image|dall-?e", re.I)),
-    ("ai-tool", re.compile(r"cursor|kiro|perplexity|suno|dreamina|即梦|muse\s*ai|midjourney|windsurf|devin", re.I),
+    ("gcp-trial", re.compile(r"gcp|google\s*cloud|云试用", re.I), re.compile(r"教程", re.I)),
+    ("image-api", re.compile(
+        r"nano\s*banana|香蕉.*生图|生图\s*api|gpt-image|dall-?e|flux\b|seedream|imagen|midjourney|"
+        r"veo\b|kling|jimeng|即梦|grok-imagine|qwen-image|stable-?diffusion|wanx|kolors|luma|runway|sora", re.I), None),
+    ("family", re.compile(r"家庭[组位车]|family\s*slot|拼车|车位|席位|共享位|team\s*席|子号.*席", re.I),
      re.compile(r"教程|须知", re.I)),
-    ("social", re.compile(r"telegram|tg\s*premium|推特|twitter|x\s*premium|apple\s*id|多邻国|duolingo|reddit|discord|tiktok", re.I),
-     re.compile(r"教程", re.I)),
+    ("verify", re.compile(r"接码|接马|kyc|实卡(?!充)|短信验证|手机号验证|验证码收|sms\b", re.I),
+     re.compile(r"成品号|代充|cdk|订阅充|官方充", re.I)),
+    ("payment", re.compile(r"虚拟卡|礼品卡|visa\b|mastercard|\b0刀\b|itunes|苹果卡", re.I),
+     re.compile(r"接码|接马|成品", re.I)),
+    ("email", re.compile(
+        r"(?<![a-z])(gmail|outlook|hotmail|icloud|edu\.?邮箱|教育邮箱|邮箱母号|"
+        r"谷歌邮箱|谷歌(?:免费)?(?:账号|帐号|号)|google\s*(?:account|mail)|微软邮箱|邮箱账号|隐私邮箱|(?:纯)?邮箱\b)", re.I),
+     # 邮箱作载体的成品号/代充不算纯邮箱
+     re.compile(r"成品号|独享号|代充|直充|cdk|plus\b|pro\s*x|claude|gemini\s*pro|grok\s*super|订阅", re.I)),
+    ("topup", re.compile(
+        r"代充|直充|官方充|cdk|卡密充|续费码|订阅充|官方渠道.*充|ios\s*充|卡充|秒充|自助充值", re.I),
+     re.compile(r"教程|须知|接码|接马", re.I)),
+    ("api-relay", re.compile(
+        r"中转|按量付费|api\s*额度|额度卡|token\s*额度|\bapi\b.*站|"
+        r"1m\s*token|/\$|/\$|/1m|/次\b|model_ratio|quota", re.I),
+     re.compile(r"成品号|代充|接码|邮箱|cdk\b", re.I)),
+    ("social", re.compile(
+        r"telegram|tg\s*premium|推特|twitter|x\s*premium|supergro|apple\s*id|"
+        r"多邻国|duolingo|reddit|discord|tiktok|netflix|spotify", re.I),
+     re.compile(r"教程|接码", re.I)),
+    ("ai-tool", re.compile(
+        r"cursor|kiro|perplexity|suno|dreamina|muse\s*ai|windsurf|devin|copilot|"
+        r"firefly|leonardo|midjourney\s*账号", re.I),
+     re.compile(r"教程|须知|中转|api\s*额度", re.I)),
+    # 大厂对话/编程账号成品号（放在 topup/email 之后）
+    ("account", re.compile(
+        r"chatgpt|chat\s*gpt|\bgpt\b|codex|openai|claude|anthropic|gemini|google\s*ai|"
+        r"antigravity|反重力|\bgrok\b|xai\b|plus\b|pro\s*x?\d|team\b|business|"
+        r"成品号|独享号|普号|白号|free\s*号|账密|带2fa", re.I),
+     re.compile(r"教程|须知|中转站|按量", re.I)),
 ]
 
 def guess_category(text: str) -> str:
     t = text or ""
+    # 中转模型价标题形态："model · $x/单位"
+    if re.search(r"·\s*\$[\d.]+\s*/\s*(次|1M)", t) or re.search(r"@\s*\S+\s*$", t) and "/1M" in t:
+        if re.search(r"image|dall|flux|seedream|veo|kling|imagine|banana|jimeng|midjourney", t, re.I):
+            return "image-api"
+        return "api-relay"
     for cat, pos, neg in CAT_RULES:
         if pos.search(t) and not (neg and neg.search(t)):
             return cat
     return "other"
 
+SUB_RULES = [
+    ("家庭位", re.compile(r"家庭[组位]|family\s*slot|车位|拼车|共享位", re.I)),
+    ("代充", re.compile(r"代充|直充|官方充|cdk|卡密充|续费|订阅充", re.I)),
+    ("成品号", re.compile(r"成品号|独享号|成品\b|账密|带2fa|白号|普号", re.I)),
+    ("接码", re.compile(r"接码|接马|sms|验证码|实卡", re.I)),
+    ("邮箱", re.compile(r"邮箱|gmail|outlook|hotmail|icloud|edu", re.I)),
+    ("API", re.compile(r"\bapi\b|中转|按量|额度|token|1m\s*token", re.I)),
+]
+
 def guess_subtypes(text: str) -> list[str]:
     t = text or ""
     return [name for name, rx in SUB_RULES if rx.search(t)]
 
-# —— 下架 / 空白页 文本特征 ——
+# —— product_key：把同款商品归一 ——
+# 品牌别名
+BRANDS = [
+    ("chatgpt", re.compile(r"chatgpt|chat\s*gpt|openai|\bgpt\b|codex|g\s*\+?\s*p\s*·?\s*t|g\s*plus|jpt", re.I)),
+    ("claude", re.compile(r"claude|anthropic|\bcc\b", re.I)),
+    ("gemini", re.compile(r"gemini|google\s*ai|antigravity|反重力|ai\s*ultra", re.I)),
+    ("grok", re.compile(r"\bgrok\b|supergro|xai\b", re.I)),
+    ("cursor", re.compile(r"cursor", re.I)),
+    ("kiro", re.compile(r"kiro", re.I)),
+    ("gmail", re.compile(r"gmail|谷歌邮箱|谷歌(?:免费)?(?:账号|帐号|号)|google\s*(?:account|mail)|谷歌.*邮箱", re.I)),
+    ("outlook", re.compile(r"outlook|hotmail|微软邮箱", re.I)),
+    ("icloud", re.compile(r"icloud", re.I)),
+    ("gcp", re.compile(r"\bgcp\b|google\s*cloud", re.I)),
+    ("telegram", re.compile(r"telegram|tg\s*premium", re.I)),
+    ("x-premium", re.compile(r"x\s*premium|twitter\s*premium|推特", re.I)),
+    ("apple-id", re.compile(r"apple\s*id", re.I)),
+    ("visa", re.compile(r"visa|虚拟卡|0刀", re.I)),
+]
+
+TIER = [
+    ("pro-20x", re.compile(r"pro\s*x?\s*20|20\s*x|20x|200\s*刀", re.I)),
+    ("pro-5x", re.compile(r"pro\s*x?\s*5|5\s*x|5x|100\s*刀", re.I)),
+    ("pro", re.compile(r"\bpro\b|max\b", re.I)),
+    ("plus", re.compile(r"\bplus\b|plus月", re.I)),
+    ("team", re.compile(r"\bteam\b|business|k12", re.I)),
+    ("ultra", re.compile(r"ultra", re.I)),
+    ("free", re.compile(r"\bfree\b|普号|白号|免费号|免费账号|免费帐号|普通号|新号|空白", re.I)),
+]
+
+FORM = [
+    ("topup", re.compile(r"代充|直充|官方充|cdk|卡密充|续费|秒充|自助充", re.I)),
+    ("family", re.compile(r"家庭|拼车|车位|席位", re.I)),
+    ("verify", re.compile(r"接码|接马|实卡|sms", re.I)),
+    ("email", re.compile(r"邮箱|gmail|outlook|hotmail|icloud", re.I)),
+    ("account", re.compile(r"成品|独享|账密|带2fa|订阅号", re.I)),
+]
+
+DURATION = [
+    ("1y", re.compile(r"12\s*个?月|一年|1\s*年|365", re.I)),
+    ("18m", re.compile(r"18\s*个?月", re.I)),
+    ("6m", re.compile(r"6\s*个?月|半年", re.I)),
+    ("3m", re.compile(r"3\s*个?月|季", re.I)),
+    ("1m", re.compile(r"1\s*个?月|月卡|30\s*天", re.I)),
+    ("1w", re.compile(r"周卡|7\s*天|一周", re.I)),
+]
+
+def product_key(text: str) -> str:
+    """归一化商品键，用于同款聚合。例：谷歌免费账号 / Gmail新号 / 谷歌邮箱 → gmail:email:free"""
+    t = text or ""
+    brand = next((b for b, rx in BRANDS if rx.search(t)), None)
+    form = next((f for f, rx in FORM if rx.search(t)), None)
+    tier = next((x for x, rx in TIER if rx.search(t)), None)
+    dur = next((x for x, rx in DURATION if rx.search(t)), None)
+
+    # 纯邮箱（无成品/代充信号）
+    if brand in ("gmail", "outlook", "icloud") and form in (None, "email") and not re.search(r"plus|pro|claude|gemini|成品号|代充", t, re.I):
+        form = "email"
+        if not tier and re.search(r"新号|全新|注册|空白|母号|free|普通", t, re.I):
+            tier = "free"
+        return ":".join(x for x in (brand, form, tier) if x)
+
+    # 谷歌免费账号 / Google 账号 无品牌时
+    if not brand and re.search(r"谷歌.*(账号|帐号|号)|google\s*(account|账号)", t, re.I):
+        brand = "gmail"
+        form = form or "email"
+        tier = tier or "free"
+
+    if not brand and re.search(r"·\s*\$", t):  # 中转模型
+        m = re.match(r"^\s*([a-z0-9._/-]+)", t, re.I)
+        return f"relay:{(m.group(1) if m else t[:40]).lower()}"
+
+    parts = [brand or "misc", form or guess_category(t), tier, dur]
+    return ":".join(p for p in parts if p)
+
+def canonical_product(text: str) -> str:
+    """给人看的短名，来自 product_key。"""
+    key = product_key(text)
+    labels = {
+        "gmail:email:free": "谷歌邮箱 / Gmail 新号",
+        "gmail:email": "谷歌邮箱 / Gmail",
+        "outlook:email:free": "Outlook / Hotmail 邮箱",
+        "outlook:email": "Outlook / Hotmail 邮箱",
+        "icloud:email": "iCloud 邮箱",
+        "chatgpt:account:plus": "ChatGPT Plus 成品号",
+        "chatgpt:topup:plus": "ChatGPT Plus 代充",
+        "chatgpt:account:pro-20x": "ChatGPT Pro 20x 成品号",
+        "chatgpt:topup:pro-20x": "ChatGPT Pro 20x 代充",
+        "chatgpt:account:pro-5x": "ChatGPT Pro 5x 成品号",
+        "chatgpt:topup:pro-5x": "ChatGPT Pro 5x 代充",
+        "chatgpt:account:team": "ChatGPT Team / Business",
+        "chatgpt:account:free": "ChatGPT Free / 普号",
+        "chatgpt:verify": "ChatGPT / Codex 接码",
+        "claude:account:pro": "Claude Pro 成品号",
+        "claude:topup:pro": "Claude Pro 代充",
+        "claude:account:pro-20x": "Claude Max 20x",
+        "gemini:account:pro": "Gemini Pro 成品号",
+        "gemini:topup:pro": "Gemini Pro 代充",
+        "gemini:family": "Gemini 家庭组 / 车位",
+        "grok:account": "Grok 成品号",
+        "grok:topup": "Grok 代充",
+        "cursor:account": "Cursor 账号",
+        "gcp:account": "GCP 试用号",
+        "visa:payment": "Visa 虚拟卡",
+        "telegram:social": "Telegram Premium",
+        "x-premium:social": "X Premium",
+        "apple-id:social": "Apple ID",
+    }
+    if key in labels: return labels[key]
+    # 模糊前缀
+    for k, v in labels.items():
+        if key.startswith(k): return v
+    return (text or "")[:80]
+
+# —— 下架 ——
 OFF_SHELF = re.compile(
     r"商品未上架|商品已下架|已下架|商品不存在|不存在或已|商品已删除|商品已售罄|"
     r"goods\s*not\s*found|item\s*not\s*found|404\s*not\s*found|"
@@ -84,49 +210,55 @@ CAPTCHA = re.compile(r"aliyun_waf|captcha|challenge-platform|cf-browser-verifica
 
 def classify_page(status: int, text: str, title: str = "") -> str:
     raw = text or ""
-    blob = (title or "") + "\n" + raw[:50000]  # SPA 把文案塞进 JSON/JS，多看一点
+    blob = (title or "") + "\n" + raw[:50000]
     if status >= 400: return f"http_{status}"
     if CAPTCHA.search(blob): return "captcha"
     if OFF_SHELF.search(blob): return "off_shelf"
-    # 常见发卡站把「未上架」写在前端 i18n / 初始 state 里
-    if re.search(r"未上架|已下架|goodsNotExist|GOODS_NOT|item_not_found|offShelf|off_shelf", blob, re.I):
+    if re.search(r"未上架|已下架|goodsNotExist|GOODS_NOT|item_not_item|offShelf|off_shelf", blob, re.I):
         return "off_shelf"
     visible = re.sub(r"<script[\s\S]*?</script>|<style[\s\S]*?</style>|<[^>]+>|\s+", " ", blob)
     if len(visible.strip()) < 40 and re.search(r'id=["\'](app|root|__nuxt)', raw, re.I):
         return "spa_empty"
     return "ok"
 
-def apply_junk_and_category(batch_limit=50000):
-    """对已入库报价重算 junk/category；返回统计。"""
-    from .schema import guess_category as _  # noqa — 由本模块覆盖
-    d = store.db(); n_junk = n_cat = 0
-    for o in d.offers.find({"ignored": {"$ne": True}}, {"title": 1, "product": 1, "price": 1, "category": 1, "tags": 1, "junk": 1}).limit(batch_limit):
+def apply_junk_and_category(batch_limit=100000):
+    """重算 junk / category / product_key / product 显示名。"""
+    d = store.db(); n_junk = n_cat = n_key = 0
+    for o in d.offers.find({"ignored": {"$ne": True}},
+                           {"title": 1, "product": 1, "price": 1, "category": 1, "tags": 1, "junk": 1, "source": 1}).limit(batch_limit):
         text = f'{o.get("product") or ""} {o.get("title") or ""}'
         upd = {}
         reason = is_junk(o)
         if reason:
-            upd.update(junk=True, junk_reason=reason)
-            n_junk += 1
+            upd.update(junk=True, junk_reason=reason); n_junk += 1
         elif o.get("junk"):
             d.offers.update_one({"_id": o["_id"]}, {"$unset": {"junk": 1, "junk_reason": 1}})
-        cat = guess_category(text)
+        # 中转源强制 api-relay / image-api
+        if o.get("source") == "relay":
+            cat = "image-api" if re.search(r"image|dall|flux|seedream|veo|kling|imagine|banana|jimeng", text, re.I) else "api-relay"
+        else:
+            cat = guess_category(text)
+        key = product_key(text)
+        name = canonical_product(text)
         subs = guess_subtypes(text)
         if cat != o.get("category"):
             upd["category"] = cat; n_cat += 1
+        if key != o.get("product_key"):
+            upd["product_key"] = key; n_key += 1
+        if name and name != o.get("product"):
+            upd["product"] = name
         tags = list(dict.fromkeys([*(o.get("tags") or []), *subs]))
         if tags != (o.get("tags") or []): upd["tags"] = tags
         if upd: d.offers.update_one({"_id": o["_id"]}, {"$set": upd})
-    return {"junk_marked": n_junk, "recategorized": n_cat}
+    return {"junk_marked": n_junk, "recategorized": n_cat, "product_keys": n_key}
 
 def hide_no_url():
-    """无商品深链的报价标记 no_url（前台隐藏）。ApiNav 部分卡片只有店铺首页。"""
     r = store.db().offers.update_many(
         {"$or": [{"url": None}, {"url": ""}], "no_url": {"$ne": True}},
         {"$set": {"no_url": True, "link_status": "no_url"}})
     return r.modified_count
 
 def hide_out_of_stock_aggregators():
-    """聚合源明示缺货的直接隐藏，无需探活。"""
     r = store.db().offers.update_many(
         {"source": {"$in": ["aigood", "apinav", "ldxp-showcase", "priceai"]}, "in_stock": False,
          "off_shelf": {"$ne": True}},
@@ -134,12 +266,10 @@ def hide_out_of_stock_aggregators():
     return r.modified_count
 
 def probe_links(limit=80, workers=3, delay=1.2):
-    """经代理探活报价链接；标记 off_shelf / captcha / ok。限流。"""
     import time, logging
     from concurrent.futures import ThreadPoolExecutor
     log = logging.getLogger("mooo.quality")
     d = store.db()
-    # 优先：近期未探过、有 URL、非 junk、来自卡网商品源
     fresh = store.now() - timedelta(hours=config.LINK_PROBE_TTL_H)
     cand = list(d.offers.find({
         "url": {"$type": "string", "$ne": ""},
@@ -155,19 +285,17 @@ def probe_links(limit=80, workers=3, delay=1.2):
         last[h] = time.time()
         try:
             host = (urlsplit(u).hostname or "").lower()
-            # 链动/错图小铺等 ESA 滑块站：不浪费探活配额，靠聚合源 in_stock
             if any(host == x or host.endswith("." + x) for x in ("wzyp.cn", "ldxp.cn", "pay.ldxp.cn", "ldxp.net")):
                 d.offers.update_one({"_id": o["_id"]}, {"$set": {"link_status": "captcha_host", "link_checked_at": store.now()}})
                 return "captcha_host"
             with client(headers={"User-Agent": config.BROWSER_UA}) as c:
-                # CATFK：JSON API 比 SPA HTML 可靠
                 m = re.search(r"catfk\.com/item/([A-Za-z0-9_-]+)", u)
                 if m:
                     r = c.get("https://catfk.com/shopApi/Shop/goodsInfo", params={"link": m.group(1)}, timeout=15)
                     try: j = r.json()
                     except Exception: j = {}
                     msg = str(j.get("msg") or "")
-                    if "不存在" in msg or "下架" in msg or j.get("data") is None and j.get("code") == 0:
+                    if "不存在" in msg or "下架" in msg or (j.get("data") is None and j.get("code") == 0):
                         v = "off_shelf"
                     elif j.get("data"):
                         v = "ok"
