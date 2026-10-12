@@ -46,6 +46,11 @@ def classify(url: str, hint: str | None = None):
     t = hint or "unknown"
     return {"key": f"web:{host}", "type": t, "platform": None, "url": f"https://{host}/", "ref": url}
 
+def slugify(key: str) -> str:
+    """catfk:yimeng -> catfk-yimeng；web:api.foo.com -> api-foo-com；tg:name -> name"""
+    k = key.split(":", 1)[1] if key.startswith(("web:", "tg:")) else key
+    return re.sub(r"[^a-z0-9-]+", "-", k.lower().replace(":", "-").replace(".", "-")).strip("-")
+
 def upsert(mentions, source: str):
     """mentions: iterable of (url, hint, context, seen_at)。按 key 合并计数。"""
     col = store.db().targets; n = 0; ts = now()
@@ -59,7 +64,7 @@ def upsert(mentions, source: str):
     for key, a in agg.items():
         ins = {"first_seen": a["seen"], "status": "new", "health": {}, "platform": a["platform"], "type": a["type"]}
         upd = {"$setOnInsert": ins,
-               "$set": {"url": a["url"], "last_seen": ts, f"sources.{source}": a["count"], "sample": (a["ctx"] or "")[:300]},
+               "$set": {"url": a["url"], "last_seen": ts, "slug": slugify(key), f"sources.{source}": a["count"], "sample": (a["ctx"] or "")[:300]},
                "$inc": {"mentions": a["count"]}, "$addToSet": {"refs": {"$each": [a["ref"]][:1]}}}
         if a.get("pending_item"): upd["$set"]["pending_item"] = a["pending_item"]
         if a["type"] == "relay" and a["platform"] is None:  # 中转提示优先于卡网/未知
@@ -73,6 +78,9 @@ def ensure_indexes():
     col.create_index([("platform", 1)])
     col.create_index([("kw", 1)])
     col.create_index([("last_seen", -1)])
+    col.create_index([("slug", 1), ("type", 1)])
+    for d in col.find({"slug": {"$exists": False}}, {"_id": 1}):
+        col.update_one({"_id": d["_id"]}, {"$set": {"slug": slugify(d["_id"])}})
 
 def search(type=None, q=None, platform=None, status=None, limit=60, skip=0):
     f = {}
@@ -90,3 +98,16 @@ def stats():
     for d in col.aggregate([{"$group": {"_id": {"t": "$type", "p": "$platform", "s": "$status"}, "n": {"$sum": 1}}}]):
         by[(d["_id"].get("t"), d["_id"].get("p"), d["_id"].get("s"))] = d["n"]
     return by
+
+
+KNOWN_EXTRA_HOSTS = {"github.com", "t.me"}
+
+def host_allowed(host: str) -> bool:
+    """/go 跳转白名单：只允许本站收录过的目标域名或报价链接域名（防开放重定向）。"""
+    h = (host or "").lower().removeprefix("www.")
+    if not h: return False
+    if h in KNOWN_EXTRA_HOSTS or h in CARD_HOSTS: return True
+    d = store.db()
+    if d.targets.find_one({"_id": f"web:{h}"}, {"_id": 1}): return True
+    rx = {"$regex": f"^https?://(www\\.)?{re.escape(h)}(?:[:/]|$)"}
+    return bool(d.offers.find_one({"url": rx}, {"_id": 1}) or d.targets.find_one({"url": rx}, {"_id": 1}))

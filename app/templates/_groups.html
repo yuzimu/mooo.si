@@ -15,7 +15,7 @@
       <ul class="divide-y divide-slate-100 dark:divide-white/[.04]">
         {% for o in g.offers %}
         <li {% if loop.index > 3 %}x-show="more" x-cloak{% endif %}>
-          <a href="{{ o.url or '#' }}" target="_blank" rel="nofollow noopener" class="flex items-center gap-3 px-4 py-2.5 transition hover:bg-slate-50 dark:hover:bg-white/[.03]">
+          <a href="{{ o.url | go }}" data-go="{{ o.url or '' }}" target="_blank" rel="nofollow noopener" class="flex items-center gap-3 px-4 py-2.5 transition hover:bg-slate-50 dark:hover:bg-white/[.03]">
             <span class="w-5 shrink-0 text-center font-mono text-[11px] {{ 'font-bold text-emerald-500' if loop.first else 'text-slate-400' }}">{{ loop.index }}</span>
             <div class="min-w-0 flex-1">
               <p class="truncate text-sm text-slate-700 dark:text-slate-200" title="{{ o.title }}">{{ o.title }}</p>

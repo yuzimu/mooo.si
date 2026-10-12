@@ -46,7 +46,7 @@
       <div class="flex items-start gap-3">
         <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-violet-500/15 to-sky-500/10 text-violet-600 ring-1 ring-violet-500/20 dark:text-violet-300"><i data-lucide="{{ icon }}" class="h-4 w-4"></i></span>
         <div class="min-w-0 flex-1">
-          <a href="{{ t.url }}" target="_blank" rel="nofollow noopener" class="block truncate font-semibold text-slate-900 hover:text-violet-600 dark:text-white">{{ t.name or t._id.split(':')[-1] }}</a>
+          <a href="{{ t.slug | target_path(t.type) }}" class="block truncate font-semibold text-slate-900 hover:text-violet-600 dark:text-white">{{ t.name or t._id.split(':')[-1] }}</a>
           <p class="truncate font-mono text-[11px] text-slate-500">{{ t.url | replace('https://', '') }}</p>
         </div>
         <span class="shrink-0 rounded-md bg-{{ st[1] }}-500/10 px-1.5 py-0.5 text-[11px] font-medium text-{{ st[1] }}-600 dark:text-{{ st[1] }}-400">{{ st[0] }}</span>

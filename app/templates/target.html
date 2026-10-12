@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block main %}
+{% set h = t.health or {} %}
+<section class="mx-auto max-w-5xl px-4 pt-12 sm:px-6">
+  <nav class="text-xs text-slate-500" aria-label="breadcrumb"><a href="/" class="hover:underline">首页</a> / <a href="{{ back_href }}" class="hover:underline">{{ back_label }}</a> / <span>{{ t.name or t.host }}</span></nav>
+  <div class="mt-4 flex flex-wrap items-start justify-between gap-4">
+    <div class="min-w-0">
+      <h1 class="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">{{ t.name or t.host }}</h1>
+      <p class="mt-1 font-mono text-sm text-slate-500">{{ t.host }}</p>
+      <div class="mt-3 flex flex-wrap gap-1.5 text-xs">
+        {% if t.platform %}<span class="rounded bg-sky-500/10 px-2 py-0.5 font-medium text-sky-600 dark:text-sky-400">{{ t.platform }}</span>{% endif %}
+        <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-500 dark:bg-white/5">状态：{{ t.status }}</span>
+        <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-500 dark:bg-white/5">提及 {{ t.mentions or 0 }} 次</span>
+        {% for s in (t.sources or {}).keys() %}<span class="rounded bg-slate-100 px-2 py-0.5 text-slate-500 dark:bg-white/5">{{ s }}</span>{% endfor %}
+      </div>
+    </div>
+    <a href="{{ t.url | go }}" data-go="{{ t.url }}" target="_blank" rel="nofollow noopener" class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-sky-500 via-violet-500 to-fuchsia-500 px-4 py-2.5 text-sm font-semibold text-white">访问{{ '店铺' if t.type == 'card_shop' else '站点' }}<i data-lucide="arrow-up-right" class="h-4 w-4"></i></a>
+  </div>
+  <dl class="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
+    {% for k, v in [('首次发现', t.first_seen | reltime), ('最近提及', t.last_seen | reltime), ('最近巡检', h.at | reltime), ('报价/模型', h.offers or h.models or 0)] %}
+    <div class="rounded-2xl border border-slate-200 bg-white/70 p-4 dark:border-white/[.07] dark:bg-white/[.03]"><dt class="text-xs text-slate-500">{{ k }}</dt><dd class="mt-1 font-mono text-lg font-bold text-slate-900 dark:text-white">{{ v }}</dd></div>{% endfor %}
+  </dl>
+  {% if t.sample %}<p class="mt-6 rounded-2xl bg-slate-100 p-4 text-sm leading-6 text-slate-600 dark:bg-white/[.03] dark:text-slate-400">{{ t.sample }}</p>{% endif %}
+
+  {% if models %}
+  <h2 class="mt-10 text-xl font-bold text-slate-900 dark:text-white">模型价格（{{ models|length }}）</h2>
+  <p class="mt-1 text-xs text-slate-500">按「倍率 1 ≈ $2 / 1M 输入 tokens × 最低可用分组倍率」估算，仅供参考。</p>
+  <div class="mt-4 overflow-x-auto rounded-2xl border border-slate-200 dark:border-white/[.07]"><table class="w-full text-sm">
+    <thead class="bg-slate-50 text-left text-xs text-slate-500 dark:bg-white/[.03]"><tr><th class="px-4 py-2">模型</th><th class="px-4 py-2 text-right">价格 (USD)</th><th class="px-4 py-2">单位</th><th class="px-4 py-2 text-right">分组倍率</th></tr></thead>
+    <tbody class="divide-y divide-slate-100 dark:divide-white/[.04]">{% for m in models[:300] %}<tr><td class="px-4 py-1.5 font-mono text-xs">{{ m.model }}</td><td class="px-4 py-1.5 text-right font-mono">{{ m.price }}</td><td class="px-4 py-1.5 text-xs text-slate-500">{{ m.unit }}</td><td class="px-4 py-1.5 text-right font-mono text-xs">{{ m.group_ratio }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% endif %}
+
+  {% if groups %}
+  <h2 class="mt-10 text-xl font-bold text-slate-900 dark:text-white">在售商品（{{ offer_count }}）</h2>
+  <div id="groups" class="mt-4 grid gap-4 lg:grid-cols-2">{% include "_groups.html" %}</div>
+  {% endif %}
+</section>
+{% endblock %}

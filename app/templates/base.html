@@ -2,8 +2,22 @@
 <html lang="zh-CN" class="dark">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{% block title %}mooo.si · AI 账号 / 卡网 / 中转 比价雷达{% endblock %}</title>
-<meta name="description" content="聚合 AI 卡网、API 中转、AI 工具报价，实时比价，找到全网最低价。">
+{% set seo = seo or {} %}
+<title>{% block title %}{{ seo.title or 'mooo.si · AI 账号 / 卡网 / 中转 比价雷达' }}{% endblock %}</title>
+<meta name="description" content="{{ seo.description or '聚合 AI 卡网、API 中转、AI 工具报价，同款多家卖家实时比价，找到 ChatGPT、Claude、Gemini、Grok 全网最低价。' }}">
+<link rel="canonical" href="{{ seo.canonical or (SITE_URL ~ request.url.path) }}">
+<link rel="alternate" hreflang="zh-CN" href="{{ seo.canonical or (SITE_URL ~ request.url.path) }}">
+<link rel="alternate" hreflang="x-default" href="{{ seo.canonical or (SITE_URL ~ request.url.path) }}">
+{% if seo.noindex %}<meta name="robots" content="noindex,follow">{% endif %}
+<meta property="og:type" content="website"><meta property="og:site_name" content="mooo.si"><meta property="og:locale" content="zh_CN">
+<meta property="og:title" content="{{ seo.title or 'mooo.si · AI 资源比价雷达' }}">
+<meta property="og:description" content="{{ seo.description or '聚合 AI 卡网、API 中转、AI 工具报价，实时比价。' }}">
+<meta property="og:url" content="{{ seo.canonical or (SITE_URL ~ request.url.path) }}">
+<meta property="og:image" content="{{ SITE_URL }}/og.svg">
+<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="{{ seo.title or 'mooo.si · AI 资源比价雷达' }}">
+<meta name="twitter:description" content="{{ seo.description or '聚合 AI 卡网、API 中转、AI 工具报价，实时比价。' }}">
+{% for ld in (seo.jsonld or []) %}<script type="application/ld+json">{{ ld | tojson }}</script>
+{% endfor %}
 <script>if(localStorage.theme==='light')document.documentElement.classList.remove('dark')</script>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
@@ -60,8 +74,33 @@ colors:{ink:{950:'#05070d',900:'#0a0e1a',850:'#0e1322',800:'#131a2c',700:'#1c254
 <footer class="mt-24 border-t border-slate-200/70 dark:border-white/[.06]">
   <div class="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-10 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-6">
     <div class="flex items-center gap-2"><span class="font-semibold text-slate-700 dark:text-slate-300">mooo.si</span><span>·</span><span>AI 账号与 API 比价雷达</span></div>
-    <p class="text-xs leading-relaxed sm:text-right">数据来自公开来源，仅供参考；价格、库存与售后请以原始店铺为准。<br class="hidden sm:block">本站不销售任何商品。</p>
+    <div class="text-xs leading-relaxed sm:text-right">
+      <p>联系方式：<a href="mailto:ykj@mail.grokbot.com" class="font-mono text-violet-600 hover:underline dark:text-violet-400">ykj@mail.grokbot.com</a> · <a href="/about#submit" class="hover:underline">提交店铺 / 中转</a> · <a href="/sitemap.xml" class="hover:underline">站点地图</a></p>
+      <p class="mt-1">数据来自公开来源，仅供参考；价格、库存与售后请以原始店铺为准。本站不销售任何商品。<span class="text-amber-600 dark:text-amber-400">网络资源谨防欺诈，注意资金安全。</span></p>
+    </div>
   </div>
 </footer>
+<!-- 外链确认弹窗：所有外链都先经过此确认，或直接访问 /go 中转页确认 -->
+<div id="go-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="go-title">
+  <div class="w-full max-w-md rounded-2xl border border-amber-500/30 bg-white p-6 shadow-2xl dark:bg-ink-900">
+    <div class="flex items-center gap-2 text-amber-600 dark:text-amber-400"><i data-lucide="shield-alert" class="h-5 w-5"></i><h2 id="go-title" class="font-bold">即将离开 mooo.si</h2></div>
+    <p class="mt-3 text-sm font-semibold text-slate-900 dark:text-white">网络资源谨防欺诈，注意资金安全</p>
+    <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">目标网站：<span id="go-domain" class="break-all font-mono font-bold text-rose-600 dark:text-rose-400"></span></p>
+    <p class="mt-2 text-xs leading-5 text-slate-500">本站仅做信息聚合，不对第三方店铺/站点的商品、交易与售后负责。请勿私下转账，优先使用平台担保，谨慎提供账号密码。</p>
+    <div class="mt-5 flex justify-end gap-2">
+      <button type="button" id="go-cancel" class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium dark:border-white/10">取消</button>
+      <a id="go-ok" href="#" target="_blank" rel="nofollow noopener noreferrer" class="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600">确认，前往</a>
+    </div>
+  </div>
+</div>
+<script>
+(function(){const m=document.getElementById('go-modal'),ok=document.getElementById('go-ok'),dom=document.getElementById('go-domain');
+function close(){m.classList.add('hidden');m.classList.remove('flex')}
+document.getElementById('go-cancel').onclick=close;m.addEventListener('click',e=>{if(e.target===m)close()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')close()});
+ok.addEventListener('click',()=>setTimeout(close,50));
+document.addEventListener('click',e=>{const a=e.target.closest('a[data-go]');if(!a||!a.dataset.go)return;let u;try{u=new URL(a.dataset.go)}catch(_){return}
+if(!/^https?:$/.test(u.protocol))return;e.preventDefault();dom.textContent=u.hostname;ok.href=a.getAttribute('href')+'&ok=1';m.classList.remove('hidden');m.classList.add('flex')});})();
+</script>
 <script>lucide.createIcons();document.querySelectorAll('form[data-loading]').forEach(f=>f.addEventListener('submit',()=>document.getElementById('loading')?.classList.remove('hidden')))</script>
 </body></html>
