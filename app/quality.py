@@ -30,8 +30,8 @@ CAT_RULES = [
         r"veo\b|kling|jimeng|即梦|grok-imagine|qwen-image|stable-?diffusion|wanx|kolors|luma|runway|sora", re.I), None),
     ("family", re.compile(r"家庭[组位车]|family\s*slot|拼车|车位|席位|共享位|team\s*席|子号.*席", re.I),
      re.compile(r"教程|须知", re.I)),
-    ("verify", re.compile(r"接码|接马|kyc|实卡(?!充)|短信验证|手机号验证|验证码收|sms\b", re.I),
-     re.compile(r"成品号|代充|cdk|订阅充|官方充", re.I)),
+    ("verify", re.compile(r"(?<!未)(?<!不)(接码|接马)|kyc|实卡(?!充)|短信验证|手机号验证|验证码收|sms\b", re.I),
+     re.compile(r"成品号|代充|cdk|订阅充|官方充|未接码|不接码", re.I)),
     ("payment", re.compile(r"虚拟卡|礼品卡|visa\b|mastercard|\b0刀\b|itunes|苹果卡", re.I),
      re.compile(r"接码|接马|成品", re.I)),
     ("email", re.compile(
@@ -119,7 +119,7 @@ TIER = [
 FORM = [
     ("topup", re.compile(r"代充|直充|官方充|cdk|卡密充|续费|秒充|自助充", re.I)),
     ("family", re.compile(r"家庭|拼车|车位|席位", re.I)),
-    ("verify", re.compile(r"接码|接马|实卡|sms", re.I)),
+    ("verify", re.compile(r"(?<!未)(?<!不)(接码|接马)|(?<!未)实卡(?!充)|sms", re.I)),
     ("email", re.compile(r"邮箱|gmail|outlook|hotmail|icloud", re.I)),
     ("account", re.compile(r"成品|独享|账密|带2fa|订阅号", re.I)),
 ]
@@ -142,9 +142,9 @@ def product_key(text: str) -> str:
     dur = next((x for x, rx in DURATION if rx.search(t)), None)
 
     # 纯邮箱（无成品/代充信号）
-    if brand in ("gmail", "outlook", "icloud") and form in (None, "email") and not re.search(r"plus|pro|claude|gemini|成品号|代充", t, re.I):
+    if brand in ("gmail", "outlook", "icloud") and form in (None, "email", "account") and not re.search(r"plus|pro|claude|gemini|成品号|代充|接码|接马", t, re.I):
         form = "email"
-        if not tier and re.search(r"新号|全新|注册|空白|母号|free|普通", t, re.I):
+        if not tier and re.search(r"新号|全新|注册|空白|母号|free|普通|免费", t, re.I):
             tier = "free"
         return ":".join(x for x in (brand, form, tier) if x)
 
@@ -239,6 +239,12 @@ def apply_junk_and_category(batch_limit=100000):
         else:
             cat = guess_category(text)
         key = product_key(text)
+        # product_key 形态优先：避免「未接码」等误伤导致分类漂移
+        form = (key.split(":")[1] if ":" in key else "")
+        form_to_cat = {"email": "email", "verify": "verify", "topup": "topup", "family": "family",
+                       "account": "account", "payment": "payment", "social": "social"}
+        if form in form_to_cat:
+            cat = form_to_cat[form]
         name = canonical_product(text)
         subs = guess_subtypes(text)
         if cat != o.get("category"):
