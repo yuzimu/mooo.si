@@ -22,7 +22,7 @@
       <span class="text-sm font-normal text-slate-500">{{ g.n_families }} 个家族 · {{ g.n_offers }} 条报价</span>
     </h2>
     <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3" x-data>
-      {% for f in g.families %}
+      {% for f in (g.families if bucket else g.families[:top_n]) %}
       <article class="rounded-2xl border border-slate-200 bg-white/80 p-4 dark:border-white/[.07] dark:bg-white/[.03]" x-data="{open:false}">
         <div class="flex items-start justify-between gap-2">
           <div class="min-w-0">
@@ -52,6 +52,11 @@
       </article>
       {% endfor %}
     </div>
+    {% if not bucket and g.n_families > top_n %}
+    <div class="mt-4 text-center"><a href="/models?bucket={{ g.id }}{% if q %}&q={{ q | urlencode }}{% endif %}"
+       class="inline-block rounded-full border border-violet-500/40 px-4 py-1.5 text-sm font-medium text-violet-600 hover:bg-violet-500/10 dark:text-violet-400">
+       显示全部 {{ g.n_families }} 个{{ g.label }}家族 →</a></div>
+    {% endif %}
   </section>
   {% else %}
   <p class="mt-16 text-center text-slate-500">暂无模型报价，等待中转巡检。</p>
