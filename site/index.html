@@ -1,0 +1,16 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>mooo.si · AI 卡网 / 中转 / 工具 比价</title>
+<style>body{font-family:system-ui;margin:2rem;max-width:1100px}table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #ddd;padding:6px;font-size:14px;text-align:left}input,select{padding:6px;margin-right:8px}</style></head>
+<body><h1>mooo.si</h1><p>聚合 AI 卡网、API 中转与 AI 工具报价。信息仅供参考，购买前请核实。<span id="meta"></span></p>
+<input id="q" placeholder="搜索…"><select id="cat"><option value="">全部分类</option></select><label><input type="checkbox" id="stock" checked>仅有货</label>
+<table><thead><tr><th>商品</th><th>标题</th><th>价格</th><th>卖家</th><th>来源</th></tr></thead><tbody id="tb"></tbody></table>
+<script>
+let D=[];const $=i=>document.getElementById(i);
+fetch('data/offers.json').then(r=>r.json()).then(j=>{D=j.offers;$('meta').textContent=' 更新于 '+new Date(j.generated_at).toLocaleString();
+[...new Set(D.map(o=>o.category))].sort().forEach(c=>$('cat').add(new Option(c,c)));draw()});
+function draw(){const q=$('q').value.toLowerCase(),c=$('cat').value,s=$('stock').checked;
+$('tb').innerHTML=D.filter(o=>(!c||o.category==c)&&(!s||o.in_stock)&&(o.product+o.title).toLowerCase().includes(q)).sort((a,b)=>a.price-b.price).slice(0,500)
+.map(o=>`<tr><td>${esc(o.product)}</td><td>${o.url?`<a href="${esc(o.url)}" rel="nofollow noopener" target="_blank">${esc(o.title)}</a>`:esc(o.title)}</td><td>${o.price} ${o.currency}</td><td>${esc(o.seller||'')}</td><td>${o.source}</td></tr>`).join('')}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+['q','cat','stock'].forEach(i=>$(i).oninput=draw);
+</script></body></html>
