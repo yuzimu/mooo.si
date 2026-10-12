@@ -34,3 +34,9 @@ source, product, category, title, price, currency, seller, url, in_stock, stock,
 
 ## 合规
 遵守 robots 与站点公开 feed 政策；不绕验证码（ESA 滑块站点跳过）；低频请求；页面声明仅供参考。
+
+## 线上现状（2026-10-12 部署）
+- `/opt/mooo-si`：docker-compose.yml（镜像 ghcr.io/yuzimu/mooo.si:latest，首个版本在服务器本机构建并打此标签）、`.env`（600 权限）、`data/mooo.db`、`src/`（构建源码）。
+- 1Panel OpenResty：`/opt/1panel/www/conf.d/site-mooo-si.conf` + `/opt/1panel/www/sites/site-mooo-si/`，仿照 site-mooo-grok（Cloudflare 真实 IP / 来源白名单 / http→https）。改动前备份在 `/opt/mooo-si/conf.d-backup-*.tgz`。注意：该站点为手写配置，1Panel 网站列表里不会显示。
+- 证书：acme.sh（docker）webroot 签发 Let's Encrypt，`/etc/cron.d/mooo-si-cert` 每日续期并重载 openresty。
+- 代理池：未接入（resin 需要代理令牌，属于 x2api 的凭据，未复用）。
