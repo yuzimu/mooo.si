@@ -33,7 +33,7 @@ TARGET_WORKERS = int(os.getenv("TARGET_WORKERS", "4"))   # 全局并发上限；
 DOMAIN_DELAY = float(os.getenv("DOMAIN_DELAY", "2.0"))
 RELAY_FEATURED = os.getenv("RELAY_FEATURED", r"gpt-5|gpt-4o|o3|claude|gemini|grok|deepseek|nano-banana|image|veo|sora")
 PROXY_REQUIRED = os.getenv("PROXY_REQUIRED", "0") == "1"   # 生产=1：无代理则不抓
-CRAWL_EVERY_HOURS = int(os.getenv("CRAWL_EVERY_HOURS", "2"))
+CRAWL_EVERY_HOURS = int(os.getenv("CRAWL_EVERY_HOURS", "24"))
 MAX_PAGES_PER_TARGET = int(os.getenv("MAX_PAGES_PER_TARGET", "5"))
 TARGET_MIN_INTERVAL_H = float(os.getenv("TARGET_MIN_INTERVAL_H", "6"))   # 同一目标两次抓取最小间隔
 SITE_URL = os.getenv("SITE_URL", "https://mooo.si").rstrip("/")

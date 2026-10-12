@@ -117,7 +117,7 @@ def main():
     col = store.db().targets
     now = store.now()
 
-    proj = {"platform": 1, "type": 1, "url": 1, "fp": 1, "fp_at": 1,
+    proj = {"platform": 1, "type": 1, "url": 1, "fp": 1, "fp_at": 1, "status": 1,
             "name": 1, "mentions": 1, "last_seen": 1, "sources": 1, "tg_public": 1}
     cands = [t for t in col.find({"platform": "ldxp"}, proj) if needs_fp(t, now)]
     # 待识别（new）优先，其次按下架/风控等已有状态分组处理

@@ -30,7 +30,7 @@ async def lifespan(app):
         from datetime import datetime
         from . import pipeline
         sched = BackgroundScheduler(timezone=config.TZ)
-        # 每 CRAWL_EVERY_HOURS 小时一轮（默认 2h，整点 + 0~10 分钟抖动）：代理检查 → 聚合源 → 发现 → 定向抓取 → 去重
+        # 每 CRAWL_EVERY_HOURS 小时一轮（默认 24h，整点 + 0~10 分钟抖动）：代理检查 → 聚合源 → 发现 → 定向抓取 → 去重
         sched.add_job(pipeline.cycle, "cron", hour=f"*/{config.CRAWL_EVERY_HOURS}", minute=7, jitter=600,
                       max_instances=1, coalesce=True, misfire_grace_time=3600, id="cycle")
         if store.db().offers.estimated_document_count() == 0:  # 首次启动空库时立即跑一轮
