@@ -1,0 +1,39 @@
+    {% for g in groups %}{% set m = cat_meta(g.category) %}
+    <article x-data="{more:false}" class="overflow-hidden rounded-2xl border border-slate-200 bg-white/80 dark:border-white/[.07] dark:bg-ink-900/60">
+      <header class="flex items-start gap-3 border-b border-slate-100 p-4 dark:border-white/[.05]">
+        <span class="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-violet-500/15 to-sky-500/10 text-violet-600 ring-1 ring-violet-500/20 dark:text-violet-300"><i data-lucide="{{ m.icon }}" class="h-[18px] w-[18px]"></i></span>
+        <div class="min-w-0 flex-1">
+          <h3 class="truncate font-semibold text-slate-900 dark:text-white">{{ g.name }}</h3>
+          <div class="mt-1 flex flex-wrap gap-1">{% for t in g.tags[:2] %}<span class="max-w-[16rem] truncate rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500 dark:bg-white/5 dark:text-slate-400">{{ t }}</span>{% endfor %}</div>
+        </div>
+        <div class="shrink-0 text-right">
+          <p class="text-[11px] text-slate-500">最低</p>
+          <p class="font-mono text-lg font-bold leading-tight text-emerald-600 dark:text-emerald-400">{{ g.min | money(g.currency) }}</p>
+          {% if g.max > g.min %}<p class="font-mono text-[11px] text-slate-400">~ {{ g.max | money(g.currency) }}</p>{% endif %}
+        </div>
+      </header>
+      <ul class="divide-y divide-slate-100 dark:divide-white/[.04]">
+        {% for o in g.offers %}
+        <li {% if loop.index > 3 %}x-show="more" x-cloak{% endif %}>
+          <a href="{{ o.url or '#' }}" target="_blank" rel="nofollow noopener" class="flex items-center gap-3 px-4 py-2.5 transition hover:bg-slate-50 dark:hover:bg-white/[.03]">
+            <span class="w-5 shrink-0 text-center font-mono text-[11px] {{ 'font-bold text-emerald-500' if loop.first else 'text-slate-400' }}">{{ loop.index }}</span>
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm text-slate-700 dark:text-slate-200" title="{{ o.title }}">{{ o.title }}</p>
+              <p class="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-500">
+                <span class="truncate">{{ o.seller or '未知卖家' }}</span>
+                <span class="shrink-0 rounded bg-sky-500/10 px-1 font-medium text-sky-600 dark:text-sky-400">{{ o.source }}</span>
+                <span class="hidden shrink-0 sm:inline">· {{ (o.captured_at or o.fetched_at) | reltime }}</span>
+              </p>
+            </div>
+            <div class="shrink-0 text-right">
+              <p class="font-mono text-sm font-bold text-slate-900 dark:text-white">{{ o.price | money(o.currency) }}</p>
+              {% if o.in_stock %}<p class="text-[11px] text-emerald-600 dark:text-emerald-400">有货{% if o.stock %} · {{ o.stock }}{% endif %}</p>{% else %}<p class="text-[11px] text-slate-400">缺货</p>{% endif %}
+            </div>
+          </a>
+        </li>{% endfor %}
+      </ul>
+      {% if g.offers|length > 3 %}
+      <button @click="more=!more" class="flex w-full items-center justify-center gap-1 border-t border-slate-100 py-2 text-xs font-medium text-slate-500 hover:text-violet-600 dark:border-white/[.05] dark:hover:text-violet-300">
+        <span x-text="more ? '收起' : '展开全部 {{ g.offers|length }} 家卖家'"></span><i data-lucide="chevron-down" class="h-3.5 w-3.5 transition" :class="more && 'rotate-180'"></i>
+      </button>{% endif %}
+    </article>{% endfor %}

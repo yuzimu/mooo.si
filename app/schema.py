@@ -44,7 +44,7 @@ RULES = [("gcp", "gcp-trial"), ("google cloud", "gcp-trial"), ("nano banana", "n
          ("邮箱", "email"), ("gmail", "email"), ("outlook", "email"),
          ("虚拟卡", "payment"), ("礼品卡", "payment"), ("paypal", "payment"),
          ("gemini", "gemini"), ("google ai", "gemini"), ("grok", "grok"),
-         ("chatgpt", "chatgpt"), ("codex", "chatgpt"), ("openai", "chatgpt"), ("claude", "claude"),
+         ("chatgpt", "chatgpt"), ("gpt", "chatgpt"), ("codex", "chatgpt"), ("openai", "chatgpt"), ("claude", "claude"),
          ("cursor", "ai-tool"), ("kiro", "ai-tool"), ("perplexity", "ai-tool"), ("suno", "ai-tool"),
          ("dreamina", "ai-tool"), ("即梦", "ai-tool"), ("muse", "ai-tool"), ("midjourney", "ai-tool"),
          ("telegram", "social"), ("推特", "social"), ("twitter", "social"), ("x premium", "social"),

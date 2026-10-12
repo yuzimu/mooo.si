@@ -7,6 +7,7 @@ SYMBOL = {"CNY": "¥", "USD": "$", "USDT": "₮", "EUR": "€"}
 
 def money(v, cur="CNY"):
     if v is None: return "—"
+    if v == 0: return "免费/面议"
     s = f"{v:,.2f}" if v < 1000 else f"{v:,.0f}"
     if v < 1: s = f"{v:.2f}".rstrip("0").rstrip(".") if v >= 0.01 else f"{v:.3f}"
     return f"{SYMBOL.get(cur, cur + ' ')}{s}"
@@ -54,7 +55,7 @@ def category_cards(all_offers):
     for o in all_offers:
         a = acc.setdefault(o.category, {"min": None, "products": set(), "count": 0, "cur": o.currency})
         a["count"] += 1; a["products"].add(o.product)
-        if o.in_stock and (a["min"] is None or o.price < a["min"]): a["min"] = o.price
+        if o.in_stock and o.price > 0 and (a["min"] is None or o.price < a["min"]): a["min"] = o.price
     out = [{**cat_meta(c), "min": v["min"], "cur": v["cur"], "products": len(v["products"]), "count": v["count"]}
            for c, v in acc.items()]
     return sorted(out, key=lambda x: (x["id"] == "other", -x["count"]))

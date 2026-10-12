@@ -25,10 +25,10 @@ class ProxyPool:
 
 pool = ProxyPool(config.PROXY_LIST, config.PROXY_POOL_URL)
 
-def client(use_proxy=False, **kw) -> httpx.Client:
+def client(use_proxy=False, headers=None, **kw) -> httpx.Client:
     proxy = pool.get() if use_proxy else None
-    return httpx.Client(proxy=proxy, timeout=30, follow_redirects=True,
-                        headers={"User-Agent": config.USER_AGENT}, **kw)
+    h = {"User-Agent": config.USER_AGENT, **(headers or {})}
+    return httpx.Client(proxy=proxy, timeout=30, follow_redirects=True, headers=h, **kw)
 
 def browser_page():
     """连接用户指纹浏览器（BROWSER_CDP_URL），返回 (playwright, browser, page)。需 pip install playwright。"""

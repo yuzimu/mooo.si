@@ -52,16 +52,25 @@ def api_offers(q: str | None = None, category: str | None = None, in_stock: bool
 
 @app.get("/")
 def index(request: Request, q: str = "", category: str = "", source: str = "", section: str = "",
-          in_stock: bool = False, sort: str = "featured"):
+          in_stock: bool = False, sort: str = "featured", page: int = 1, partial: bool = False):
     cats = {c for c, m in CATEGORIES.items() if m[2] == section} if section in SECTIONS else None
     base = store.all_offers(cats)
     offers, total = store.search(limit=3000, sort="price", categories=cats,
                                  **_params(q, category, source, in_stock, None, None))
+    groups = views.group_products(offers, sort)
+    page = max(page, 1); per = config.GROUPS_PER_PAGE
+    page_groups = groups[(page - 1) * per: page * per]
+    has_more = page * per < len(groups)
+    if partial:
+        r = templates.TemplateResponse(request, "_groups.html", {"groups": page_groups})
+        r.headers["X-Has-More"] = "1" if has_more else "0"
+        return r
     runs = store.recent_runs()
     last_ok = next((r for r in runs if not r.error), None)
     ctx = {
         "q": q, "category": category, "source": source, "section": section, "in_stock": in_stock, "sort": sort,
-        "groups": views.group_products(offers, sort), "cats": views.category_cards(base),
+        "groups": page_groups, "groups_total": len(groups), "page": page, "has_more": has_more,
+        "shown": len(page_groups) + (page - 1) * per, "config_per": per, "cats": views.category_cards(base),
         "cheapest": views.cheapest(base), "sources": sorted({o.source for o in base}),
         "stats": {"offers": len(base), "products": len({o.product for o in base}),
                   "sources": len({o.source for o in base}), "sellers": len({o.seller for o in base}),
