@@ -31,3 +31,19 @@ def parse_price(text):
     if not m: return None, None
     cur = {"¥": "CNY", "￥": "CNY", "$": "USD"}.get(m.group(1), m.group(1))
     return float(m.group(2)), cur
+
+
+def page_window(key: str, per_run: int, total_pages: int | None = None):
+    """轮转分页：每轮固定抓第 1 页（最新/热门）+ 从游标起 per_run-1 页，多轮后覆盖全部页；游标存 Mongo。"""
+    from .. import store
+    st = store.db().discovery_state.find_one({"_id": f"pages:{key}"}) or {}
+    start = max(2, int(st.get("next") or 2))
+    if total_pages and start > total_pages: start = 2
+    pages = [1] + list(range(start, start + max(per_run - 1, 0)))
+    if total_pages: pages = [x for x in pages if x <= total_pages]
+    return pages
+
+def page_advance(key: str, last_page: int, total_pages: int | None, done: bool):
+    from .. import store
+    nxt = 2 if done or (total_pages and last_page >= total_pages) else last_page + 1
+    store.db().discovery_state.update_one({"_id": f"pages:{key}"}, {"$set": {"next": nxt, "total": total_pages, "at": store.now()}}, upsert=True)

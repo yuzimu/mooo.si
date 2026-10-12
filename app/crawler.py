@@ -4,7 +4,7 @@ from .adapters import REGISTRY
 def run_adapter(adapter):
     try:
         offers = [o.to_dict() for o in adapter.fetch()]
-        return store.save_run(adapter.id, offers, raw=getattr(adapter, "raw", None))
+        return store.save_run(adapter.id, offers, raw=getattr(adapter, "raw", None), partial=getattr(adapter, "partial", False))
     except Exception as e:  # noqa: BLE001
         return store.save_run(adapter.id, [], error=repr(e)[:2000])
 

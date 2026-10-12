@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 from .. import config
 from ..net import client
 from ..schema import Offer, guess_category
-from ._util import parse_price, polite_sleep
+from ._util import parse_price, polite_sleep, page_window, page_advance
 
 BASE = "https://aigood.chat/price-radar"
 STOCK_RE = re.compile(r"有货\s*(\d+)?")
@@ -38,13 +38,15 @@ def parse(html: str):
 class AIGood:
     id, use_proxy, use_browser = "aigood", False, False
     raw = None
+    partial = True   # 轮转分页：只替换本轮抓到的报价，旧页报价按 TTL 过期
     def fetch(self):
-        out, pages = [], []
+        out, pages, done, last = [], [], False, 1
         with client(self.use_proxy, headers={"User-Agent": config.BROWSER_UA}) as c:
-            for p in range(1, config.AIGOOD_PAGES + 1):
+            for p in page_window("aigood", config.AIGOOD_PAGES):
                 r = c.get(BASE, params={"page": p} if p > 1 else None); r.raise_for_status()
-                got = list(parse(r.text)); out += got; pages.append({"page": p, "count": len(got)})
-                if not got: break
+                got = list(parse(r.text)); out += got; pages.append({"page": p, "count": len(got)}); last = p
+                if not got: done = True; break
                 polite_sleep()
+        page_advance("aigood", last, None, done)
         self.raw = {"pages": pages}
         return out

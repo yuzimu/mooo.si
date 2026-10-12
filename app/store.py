@@ -60,7 +60,7 @@ def ensure_indexes():
     d.offers.create_index([("dedupe_key", ASCENDING)])
     d.offers.create_index([("dup", ASCENDING), ("category", ASCENDING), ("price", ASCENDING)])
 
-def save_run(source: str, offers: list[dict], raw=None, error=None):
+def save_run(source: str, offers: list[dict], raw=None, error=None, partial=False):
     d = db(); ts = now()
     run = {"source": source, "started_at": ts, "count": len(offers), "error": error}
     if error is None:
@@ -71,7 +71,16 @@ def save_run(source: str, offers: list[dict], raw=None, error=None):
             o["kw"] = sorted(tokens(" ".join([o.get("product") or "", o.get("title") or "",
                                               o.get("seller") or "", " ".join(o.get("tags") or [])])))
             docs.append(o)
-        d.offers.delete_many({"source": source, "target": {"$exists": False}})   # 每个来源保留最新快照
+        if partial:
+            # 轮转分页来源：按链接/标题替换本轮看到的报价；超过 OFFER_TTL_H 未再出现的才删除
+            keys = [o["dedupe_key"] for o in docs if o.get("dedupe_key")]
+            titles = [o.get("title") for o in docs if not o.get("dedupe_key")]
+            d.offers.delete_many({"source": source, "target": {"$exists": False},
+                                  "$or": [{"dedupe_key": {"$in": keys}}, {"dedupe_key": None, "title": {"$in": titles}}]})
+            from datetime import timedelta
+            d.offers.delete_many({"source": source, "target": {"$exists": False}, "fetched_at": {"$lt": ts - timedelta(hours=config.OFFER_TTL_H)}})
+        else:
+            d.offers.delete_many({"source": source, "target": {"$exists": False}})   # 每个来源保留最新快照
         if docs: d.offers.insert_many(docs)
     d.crawl_runs.insert_one(run)
     return SimpleNamespace(**run)

@@ -53,3 +53,18 @@ def test_fail_closed(monkeypatch):
         net.client()
     with pytest.raises(net.ProxyUnavailable):
         net.check_proxy()
+
+
+def test_partial_save_and_page_window():
+    from app import store
+    from app.adapters._util import page_window, page_advance
+    store.db().discovery_state.delete_many({}); store.db().offers.delete_many({"source": "rot"})
+    assert page_window("rot", 3) == [1, 2, 3]
+    page_advance("rot", 3, 5, False); assert page_window("rot", 3, 5) == [1, 4, 5]
+    page_advance("rot", 5, 5, False); assert page_window("rot", 3) == [1, 2, 3]
+    def o(u):
+        return {"source": "rot", "title": u, "product": u, "category": "other", "price": 1, "currency": "CNY", "seller": "s", "in_stock": True, "url": f"https://a.com/{u}"}
+    store.save_run("rot", [o("a"), o("b")], partial=True)
+    store.save_run("rot", [o("b"), o("c")], partial=True)
+    assert store.db().offers.count_documents({"source": "rot"}) == 3
+    store.db().offers.delete_many({"source": "rot"})

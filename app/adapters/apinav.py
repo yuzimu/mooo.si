@@ -4,7 +4,7 @@
 from .. import config
 from ..net import client
 from ..schema import Offer, guess_category
-from ._util import nuxt_payload, polite_sleep, parse_price
+from ._util import nuxt_payload, polite_sleep, parse_price, page_window, page_advance
 
 BASE = "https://apinav.cc"
 
@@ -41,15 +41,23 @@ def parse_cards(payload):
 class ApiNav:
     id, use_proxy, use_browser = "apinav", False, False
     raw = None
+    partial = True
     def fetch(self):
         out, raw = [], {"sites": [], "cards": []}
         with client(self.use_proxy, headers={"User-Agent": config.BROWSER_UA}) as c:
             for path, parser, pages, key in (("/sites", parse_sites, config.APINAV_SITE_PAGES, "sites"),
                                              ("/cards", parse_cards, config.APINAV_CARD_PAGES, "cards")):
-                for p in range(1, pages + 1):
+                total, last, done = None, 1, False
+                for p in page_window(f"apinav-{key}", pages):
+                    if total and p > total: break
                     r = c.get(BASE + path, params={"page": p} if p > 1 else None); r.raise_for_status()
-                    got = list(parser(nuxt_payload(r.text))); out += got; raw[key].append(len(got))
-                    if not got: break
+                    pl = nuxt_payload(r.text)
+                    meta = _items(pl, "card-products" if key == "cards" else "sites:")
+                    if meta.get("total") and meta.get("pageSize"): total = -(-int(meta["total"]) // int(meta["pageSize"]))
+                    got = list(parser(pl)); out += got; raw[key].append(len(got)); last = p
+                    if not got: done = True; break
                     polite_sleep()
+                page_advance(f"apinav-{key}", last, total, done)
+                raw[key + "_total_pages"] = total
         self.raw = raw
         return out

@@ -1,5 +1,5 @@
 """每日管线：聚合源抓取 → 阶段一发现 → 阶段二定向抓取 → 跨源去重。"""
-import logging, math, random, time
+import logging, math, random, re, time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -66,6 +66,8 @@ def _crawl_domain(items):
     out = []
     with client(headers={"User-Agent": config.BROWSER_UA}) as c:
         for t in items:
+            if meter.bytes > config.CYCLE_BYTE_BUDGET_MB * 1e6:
+                log.info("byte budget reached, defer %s", t["_id"]); break   # 流量预算用完：剩余目标顺延到下一轮
             health = {"at": store.now()}
             try:
                 fp = t.get("fp") if t.get("fp_at") and store.now() - t["fp_at"].replace(tzinfo=store.now().tzinfo) < timedelta(days=7) \
@@ -90,7 +92,9 @@ def _crawl_domain(items):
                     health.update(ok=fp["status"] == "ok", skipped=fp["status"] if fp["status"] != "ok" else "no_adapter",
                                   note=fp.get("note"))
             except Exception as e:  # noqa: BLE001
-                health.update(ok=False, error=repr(e)[:300]); upd = {"status": "error"}
+                health.update(ok=False, error=repr(e)[:300])
+                # 定价接口需登录（401/403）≠ 故障：标记 private，按失败重试间隔复查
+                upd = {"status": "private" if re.search(r"HTTP 40[13]|需登录", repr(e)) else "error"}
             store.db().targets.update_one({"_id": t["_id"]}, {"$set": {**upd, "health": health},
                                                               "$push": {"history": {"$each": [health], "$slice": -10}}})
             out.append((t["_id"], health)); time.sleep(config.DOMAIN_DELAY + random.random())
@@ -109,10 +113,17 @@ def run_targeted(limit=None):
     cand.sort(key=lambda t: -t["_prio"])
     # 最近 TARGET_MIN_INTERVAL_H 小时内成功抓过的目标本轮跳过，把配额让给其它目标（错峰）
     fresh = store.now() - timedelta(hours=config.TARGET_MIN_INTERVAL_H)
+    retry = store.now() - timedelta(hours=config.FAIL_RETRY_H)
     def recent(t):
-        at = (t.get("health") or {}).get("at")
-        return bool(at) and (t.get("health") or {}).get("ok") and at.replace(tzinfo=store.now().tzinfo) > fresh
-    cand = [t for t in cand if not recent(t)][: limit or config.TARGET_CRAWL_MAX]
+        h = t.get("health") or {}; at = h.get("at")
+        if not at: return False
+        at = at.replace(tzinfo=store.now().tzinfo)
+        return at > (fresh if h.get("ok") else retry)   # 成功的按 MIN_INTERVAL 错峰，失败的（非验证码）按 FAIL_RETRY_H 重试
+    cand = [t for t in cand if not recent(t) and not (t.get("status") == "blocked_captcha" and t.get("fp_at")
+                                                       and t["fp_at"].replace(tzinfo=store.now().tzinfo) > store.now() - timedelta(days=7))]
+    # 从未抓过的优先，其次按优先级（提及数/新鲜度/来源数）
+    cand.sort(key=lambda t: (bool((t.get("health") or {}).get("at")), -t["_prio"]))
+    cand = cand[: limit or config.TARGET_CRAWL_MAX]
     by_domain = defaultdict(list)
     for t in cand: by_domain[urlsplit(t["url"]).hostname].append(t)
     results = []
