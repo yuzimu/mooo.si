@@ -100,7 +100,7 @@ def apply_junk_and_category(batch_limit=50000):
     """对已入库报价重算 junk/category；返回统计。"""
     from .schema import guess_category as _  # noqa — 由本模块覆盖
     d = store.db(); n_junk = n_cat = 0
-    for o in d.offers.find({"ignored": {"$ne": True}}, {"title": 1, "product": 1, "price": 1, "category": 1, "tags": 1}).limit(batch_limit):
+    for o in d.offers.find({"ignored": {"$ne": True}}, {"title": 1, "product": 1, "price": 1, "category": 1, "tags": 1, "junk": 1}).limit(batch_limit):
         text = f'{o.get("product") or ""} {o.get("title") or ""}'
         upd = {}
         reason = is_junk(o)
