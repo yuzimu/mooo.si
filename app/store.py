@@ -58,7 +58,8 @@ def ensure_indexes():
     try:
         d.raw.create_index("fetched_at", expireAfterSeconds=ttl)
     except Exception:  # noqa: BLE001  旧 TTL 不同 → collMod 更新
-        d.command("collMod", "raw", index={"keyPattern": {"fetched_at": 1}, "expireAfterSeconds": ttl})
+        d.raw.drop_index("fetched_at_1")   # readWrite 无 collMod 权限：删后重建
+        d.raw.create_index("fetched_at", expireAfterSeconds=ttl)
     d.crawl_runs.create_index([("started_at", DESCENDING)])
     d.offers.create_index([("target", ASCENDING)])
     d.offers.create_index([("dedupe_key", ASCENDING)])
