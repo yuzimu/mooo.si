@@ -1,4 +1,5 @@
 pytest>=8
 ruff>=0.6
+mongomock>=4.2
 # 可选：指纹浏览器
 # playwright>=1.47

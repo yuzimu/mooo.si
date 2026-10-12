@@ -5,5 +5,13 @@ services:
     container_name: mooo-si
     restart: unless-stopped
     env_file: [.env]
-    ports: ["127.0.0.1:8790:8000"]   # 只绑定本机，由 1Panel OpenResty 反代 mooo.si
-    volumes: ["./data:/data"]
+    # 用 host 网络以访问只绑定 127.0.0.1 的 1Panel MongoDB；应用自身监听 127.0.0.1:8790
+    network_mode: host
+    command: ["uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8790", "--proxy-headers", "--forwarded-allow-ips", "127.0.0.1"]
+
+  # 仅本地开发：docker compose --profile dev up mongo
+  mongo:
+    image: mongo:8
+    profiles: [dev]
+    ports: ["127.0.0.1:27017:27017"]
+    volumes: ["./data/mongo:/data/db"]

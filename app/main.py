@@ -1,17 +1,20 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
-from fastapi import FastAPI, Request, Query, Depends
+from fastapi import FastAPI, Request, Query
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select, func
 from . import config
-from .db import Base, engine, Session, OfferRow, CrawlRun
+from . import store
 from .crawler import run_all
+from .schema import CATEGORIES, SECTIONS
+from . import views
 
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+templates.env.filters.update(money=views.money, reltime=views.reltime)
+templates.env.globals.update(cat_meta=views.cat_meta, SECTIONS=SECTIONS)
 
 @asynccontextmanager
 async def lifespan(app):
-    Base.metadata.create_all(engine)
+    store.ensure_indexes()
     sched = None
     if config.ENABLE_SCHEDULER:
         from apscheduler.schedulers.background import BackgroundScheduler
@@ -25,31 +28,53 @@ async def lifespan(app):
 
 app = FastAPI(title="mooo.si", lifespan=lifespan)
 
-def get_session():
-    with Session() as s: yield s
-
-def query(s, q=None, category=None, in_stock=None, limit=500):
-    st = select(OfferRow)
-    if q: st = st.where(OfferRow.title.contains(q) | OfferRow.product.contains(q))
-    if category: st = st.where(OfferRow.category == category)
-    if in_stock: st = st.where(OfferRow.in_stock.is_(True))
-    return s.scalars(st.order_by(OfferRow.price).limit(limit)).all()
-
 @app.get("/healthz")
-def healthz(): return {"ok": True}
+def healthz():
+    store.db().command("ping"); return {"ok": True}
+
+def _params(q, category, source, in_stock, min_price, max_price):
+    return dict(q=q or None, category=category or None, source=source or None, in_stock=in_stock,
+                min_price=min_price, max_price=max_price)
+
+@app.get("/api/search")
+def api_search(q: str = "", category: str = "", source: str = "", in_stock: bool = False,
+               min_price: float | None = None, max_price: float | None = None, sort: str = "price",
+               limit: int = Query(50, le=500), offset: int = Query(0, ge=0)):
+    items, total = store.search(limit=limit, skip=offset, sort=sort,
+                                **_params(q, category, source, in_stock, min_price, max_price))
+    return {"total": total, "offset": offset, "items": [store.to_json(o) for o in items]}
 
 @app.get("/api/offers")
 def api_offers(q: str | None = None, category: str | None = None, in_stock: bool = False,
-               limit: int = Query(200, le=1000), s=Depends(get_session)):
-    cols = [c.name for c in OfferRow.__table__.columns]
-    return [{c: getattr(o, c) for c in cols} for o in query(s, q, category, in_stock, limit)]
+               source: str | None = None, limit: int = Query(200, le=1000)):
+    items, _ = store.search(limit=limit, **_params(q, category, source, in_stock, None, None))
+    return [store.to_json(o) for o in items]
 
 @app.get("/")
-def index(request: Request, q: str = "", category: str = "", in_stock: bool = False,
-          s=Depends(get_session)):
-    cats = [c for (c,) in s.execute(select(OfferRow.category).distinct().order_by(OfferRow.category))]
-    last = s.scalars(select(CrawlRun).order_by(CrawlRun.id.desc()).limit(5)).all()
-    total = s.scalar(select(func.count(OfferRow.id)))
-    return templates.TemplateResponse(request, "index.html", {
-        "offers": query(s, q, category, in_stock), "cats": cats, "q": q, "category": category,
-        "in_stock": in_stock, "runs": last, "total": total})
+def index(request: Request, q: str = "", category: str = "", source: str = "", section: str = "",
+          in_stock: bool = False, sort: str = "featured"):
+    cats = {c for c, m in CATEGORIES.items() if m[2] == section} if section in SECTIONS else None
+    base = store.all_offers(cats)
+    offers, total = store.search(limit=3000, sort="price", categories=cats,
+                                 **_params(q, category, source, in_stock, None, None))
+    runs = store.recent_runs()
+    last_ok = next((r for r in runs if not r.error), None)
+    ctx = {
+        "q": q, "category": category, "source": source, "section": section, "in_stock": in_stock, "sort": sort,
+        "groups": views.group_products(offers, sort), "cats": views.category_cards(base),
+        "cheapest": views.cheapest(base), "sources": sorted({o.source for o in base}),
+        "stats": {"offers": len(base), "products": len({o.product for o in base}),
+                  "sources": len({o.source for o in base}), "sellers": len({o.seller for o in base}),
+                  "updated": last_ok.started_at if last_ok else None},
+        "result_count": total,
+    }
+    return templates.TemplateResponse(request, "index.html", ctx)
+
+@app.get("/search")
+def search_page(request: Request, q: str = "", category: str = "", source: str = "",
+                in_stock: bool = False, sort: str = "featured"):
+    return index(request, q=q, category=category, source=source, in_stock=in_stock, sort=sort)
+
+@app.get("/about")
+def about(request: Request):
+    return templates.TemplateResponse(request, "about.html", {})

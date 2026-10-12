@@ -14,12 +14,16 @@ def parse(snapshot: dict):
                         currency=o.get("currency") or "CNY", seller=o.get("source_name"),
                         url=o.get("url"), in_stock=o.get("status") == "in_stock",
                         stock=o.get("stock_count"), captured_at=o.get("captured_at"),
-                        tags=[t for t in (p.get("product_type"), p.get("spec")) if t])
+                        tags=[t for t in (p.get("product_type"), p.get("spec")) if t],
+                        extra={"product_id": p.get("id"), "offer_id": o.get("id"),
+                               "min_order": o.get("min_order_quantity"), "expires_at": o.get("expires_at")})
 
 class PriceAI:
     id, use_proxy, use_browser = "priceai", False, False
-    _last_id = None
+    raw = None
     def fetch(self):
         with client(self.use_proxy) as c:
             latest = c.get(LATEST).json()
-            return list(parse(c.get(latest["snapshot_url"]).json()))
+            snap = c.get(latest["snapshot_url"]).json()
+            self.raw = snap  # 原始快照存入 Mongo raw 集合
+            return list(parse(snap))

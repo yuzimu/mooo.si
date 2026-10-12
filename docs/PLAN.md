@@ -18,7 +18,7 @@ source, product, category, title, price, currency, seller, url, in_stock, stock,
 
 ## 技术栈（v0.2：服务端站点，不再使用 GitHub Pages）
 - Web：FastAPI + Jinja2 服务端渲染，`/api/offers` JSON 接口，`/healthz`
-- 存储：SQLAlchemy 2，默认 SQLite（`/data/mooo.db`），可切到服务器已有的 1Panel Postgres
+- 存储：**MongoDB 单库**（见下文“存储选型”）
 - 调度：APScheduler 进程内定时任务（默认 30 分钟），每次运行记录 `crawl_runs`
 - 适配器层：`app/adapters/*`，每源 `fetch() -> Iterable[Offer]`，声明 `use_proxy` / `use_browser`
 - 网络层 `app/net.py`：代理池（PROXY_POOL_URL / PROXY_LIST 轮换）+ 指纹浏览器 CDP 钩子（BROWSER_CDP_URL，Playwright connect_over_cdp）
@@ -39,4 +39,21 @@ source, product, category, title, price, currency, seller, url, in_stock, stock,
 - `/opt/mooo-si`：docker-compose.yml（镜像 ghcr.io/yuzimu/mooo.si:latest，首个版本在服务器本机构建并打此标签）、`.env`（600 权限）、`data/mooo.db`、`src/`（构建源码）。
 - 1Panel OpenResty：`/opt/1panel/www/conf.d/site-mooo-si.conf` + `/opt/1panel/www/sites/site-mooo-si/`，仿照 site-mooo-grok（Cloudflare 真实 IP / 来源白名单 / http→https）。改动前备份在 `/opt/mooo-si/conf.d-backup-*.tgz`。注意：该站点为手写配置，1Panel 网站列表里不会显示。
 - 证书：acme.sh（docker）webroot 签发 Let's Encrypt，`/etc/cron.d/mooo-si-cert` 每日续期并重载 openresty。
-- 代理池：未接入（resin 需要代理令牌，属于 x2api 的凭据，未复用）。
+- MongoDB：计划经 1Panel 应用商店安装（127.0.0.1、认证、库 mooo + 用户 mooo）。\n- 代理池：未接入（resin 需要代理令牌，属于 x2api 的凭据，未复用）。
+
+## 存储选型（v0.3）
+只用 MongoDB，**不再使用 SQLite/Postgres**。理由：当前结构化数据只有「标准化报价 + 抓取记录」两张表，没有跨表事务或复杂关联；
+各来源字段差异大（priceai 的 min_order/expires_at、未来 TG 消息、海外平台的卖家评分等），放进文档的 `extra` 与 `raw` 更自然；
+单一数据库也降低运维成本。等出现用户体系、订阅提醒、价格历史聚合报表等强关系需求时，再引入 1Panel 已有的 Postgres。
+
+集合：
+- `raw`：每次抓取的原始 payload（`source, fetched_at, payload`），TTL 索引默认保留 14 天（RAW_RETENTION_DAYS）。
+- `offers`：标准化报价 + `extra`（来源特有字段）+ `kw`（搜索关键词数组）；每个来源保留最新快照。
+- `crawl_runs`：抓取记录（source, started_at, count, error）。
+- 预留 `tg_messages`：TG 采集器导出的消息原文。
+
+索引：`(category, in_stock, price)`、`(source, price)`、`(product, price)`、`price`、`kw`（多键）、`raw(source, fetched_at)`、`raw.fetched_at` TTL。
+
+中文搜索：Mongo 自带 text 索引不支持中文分词，因此写入时对 product/title/seller/tags 做归一化（小写、全角斜杠等），
+生成 CJK 单字 + 双字 n-gram、英文/数字整词及前缀，存入 `kw`；查询时 CJK 取双字、英文取整词，用 `$all` 命中多键索引。
+支持 `/api/search?q=&category=&source=&in_stock=&min_price=&max_price=&sort=price|-price|new&limit=&offset=`，页面 `/search` 同样走 Mongo。

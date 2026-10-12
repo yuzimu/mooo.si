@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN" class="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}mooo.si · AI 账号 / 卡网 / 中转 比价雷达{% endblock %}</title>
+<meta name="description" content="聚合 AI 卡网、API 中转、AI 工具报价，实时比价，找到全网最低价。">
+<script>if(localStorage.theme==='light')document.documentElement.classList.remove('dark')</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config={darkMode:'class',theme:{extend:{fontFamily:{sans:['Inter','"PingFang SC"','"Noto Sans SC"','"Microsoft YaHei"','system-ui','sans-serif'],mono:['"JetBrains Mono"','ui-monospace','monospace']},
+colors:{ink:{950:'#05070d',900:'#0a0e1a',850:'#0e1322',800:'#131a2c',700:'#1c2540'}}}}}
+</script>
+<script defer src="https://unpkg.com/alpinejs@3.14.1/dist/cdn.min.js"></script>
+<script src="https://unpkg.com/lucide@0.453.0/dist/umd/lucide.min.js"></script>
+<style>
+  body{font-feature-settings:"cv11","ss01"}
+  .grad-text{background:linear-gradient(92deg,#7dd3fc 0%,#a78bfa 45%,#f0abfc 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .grid-bg{background-image:linear-gradient(rgba(148,163,184,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(148,163,184,.07) 1px,transparent 1px);background-size:44px 44px;mask-image:radial-gradient(ellipse at top,#000 30%,transparent 75%)}
+  .glow{box-shadow:0 0 0 1px rgba(139,92,246,.25),0 10px 40px -10px rgba(139,92,246,.35)}
+  .no-scrollbar::-webkit-scrollbar{display:none}.no-scrollbar{scrollbar-width:none}
+  [x-cloak]{display:none!important}
+</style>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-800 antialiased dark:bg-ink-950 dark:text-slate-200">
+<div class="pointer-events-none fixed inset-x-0 top-0 -z-10 h-[640px] overflow-hidden">
+  <div class="grid-bg absolute inset-0"></div>
+  <div class="absolute -top-40 left-1/2 h-[520px] w-[900px] -translate-x-1/2 rounded-full bg-gradient-to-r from-sky-500/20 via-violet-500/25 to-fuchsia-500/20 blur-3xl dark:from-sky-500/15 dark:via-violet-600/20 dark:to-fuchsia-500/15"></div>
+</div>
+
+<header x-data="{open:false}" class="sticky top-0 z-40 border-b border-slate-200/70 bg-white/70 backdrop-blur-xl dark:border-white/[.06] dark:bg-ink-950/70">
+  <div class="mx-auto flex h-16 max-w-7xl items-center gap-6 px-4 sm:px-6">
+    <a href="/" class="flex items-center gap-2.5">
+      <span class="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-sky-400 via-violet-500 to-fuchsia-500 text-sm font-black text-white shadow-lg shadow-violet-500/30">m</span>
+      <span class="text-[17px] font-bold tracking-tight">mooo<span class="text-violet-500">.</span>si</span>
+    </a>
+    {% set nav=[('/', '报价雷达', ''), ('/?section=cards#market', '卡网', 'cards'), ('/?section=relay#market', '中转', 'relay'), ('/?section=tools#market', 'AI 工具', 'tools'), ('/about', '关于', 'about')] %}
+    <nav class="hidden items-center gap-1 md:flex">
+      {% for href,label,key in nav %}
+      {% set active = (key=='' and request.url.path=='/' and not section) or (key and key==section) or (key=='about' and request.url.path=='/about') %}
+      <a href="{{ href }}" class="rounded-lg px-3 py-1.5 text-sm font-medium transition {{ 'bg-slate-900/5 text-slate-900 dark:bg-white/10 dark:text-white' if active else 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white' }}">{{ label }}</a>
+      {% endfor %}
+    </nav>
+    <div class="ml-auto flex items-center gap-2">
+      <a href="/api/offers" class="hidden items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:border-violet-400 hover:text-violet-600 dark:border-white/10 dark:text-slate-400 dark:hover:text-white sm:inline-flex"><i data-lucide="braces" class="h-3.5 w-3.5"></i>API</a>
+      <button aria-label="切换主题" onclick="const d=document.documentElement.classList.toggle('dark');localStorage.theme=d?'dark':'light'" class="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-500 hover:text-slate-900 dark:border-white/10 dark:text-slate-400 dark:hover:text-white">
+        <i data-lucide="sun" class="hidden h-4 w-4 dark:block"></i><i data-lucide="moon" class="h-4 w-4 dark:hidden"></i>
+      </button>
+      <button @click="open=!open" aria-label="菜单" class="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 dark:border-white/10 md:hidden"><i data-lucide="menu" class="h-4 w-4"></i></button>
+    </div>
+  </div>
+  <nav x-cloak x-show="open" x-transition class="border-t border-slate-200/70 px-4 py-2 dark:border-white/[.06] md:hidden">
+    {% for href,label,key in nav %}<a href="{{ href }}" class="block rounded-lg px-3 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-900/5 dark:text-slate-300 dark:hover:bg-white/5">{{ label }}</a>{% endfor %}
+  </nav>
+</header>
+
+<main>{% block main %}{% endblock %}</main>
+
+<footer class="mt-24 border-t border-slate-200/70 dark:border-white/[.06]">
+  <div class="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-10 text-sm text-slate-500 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+    <div class="flex items-center gap-2"><span class="font-semibold text-slate-700 dark:text-slate-300">mooo.si</span><span>·</span><span>AI 账号与 API 比价雷达</span></div>
+    <p class="text-xs leading-relaxed sm:text-right">数据来自公开来源，仅供参考；价格、库存与售后请以原始店铺为准。<br class="hidden sm:block">本站不销售任何商品。</p>
+  </div>
+</footer>
+<script>lucide.createIcons();document.querySelectorAll('form[data-loading]').forEach(f=>f.addEventListener('submit',()=>document.getElementById('loading')?.classList.remove('hidden')))</script>
+</body></html>
