@@ -1,0 +1,22 @@
+[
+  {"title": "Claude Team须知必看", "want": "other", "junk": true},
+  {"title": "GPT Plus 官方代充月卡", "want": "chatgpt", "sub": ["代充"]},
+  {"title": "ChatGPT Plus 成品号 质保25天", "want": "chatgpt", "sub": ["成品号"]},
+  {"title": "Gemini Pro 12个月成品", "want": "gemini", "sub": ["成品号"]},
+  {"title": "Gemini Pro 家庭组车位", "want": "gemini", "sub": ["家庭位"]},
+  {"title": "兔子API · 按量付费 ￥1起充", "want": "api-relay", "sub": ["API"]},
+  {"title": "gpt-image-1 · $0.04/次", "want": "nano-banana-api"},
+  {"title": "OpenAI / ChatGPT 接码｜美区实卡", "want": "verify", "sub": ["接码"]},
+  {"title": "Gmail邮箱/2FA/随机地区", "want": "email", "sub": ["邮箱"]},
+  {"title": "PayPal 接马 美区长效", "want": "verify", "sub": ["接码"]},
+  {"title": "Claude max x20 $200 成品号", "want": "claude", "sub": ["成品号"]},
+  {"title": "CursorPro权益（月）", "want": "ai-tool"},
+  {"title": "X Premium 12个月", "want": "social"},
+  {"title": "Visa 虚拟卡 0刀", "want": "payment"},
+  {"title": "充值教程 请先看", "want": "other", "junk": true},
+  {"title": "测试商品 勿拍", "want": "other", "junk": true},
+  {"title": "Codex Free 账号｜10$ 额度", "want": "chatgpt"},
+  {"title": "中转200美元额度", "want": "api-relay", "sub": ["API"]},
+  {"title": "【包GCP】Gemini Pro 1年订阅成品号", "want": "gcp-trial"},
+  {"title": "TG Premium 六个月订阅", "want": "social"}
+]

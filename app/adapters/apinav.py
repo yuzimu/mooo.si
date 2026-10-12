@@ -33,10 +33,12 @@ def parse_cards(payload):
         yield Offer(source="apinav", product=(it.get("name") or "")[:120],
                     category=guess_category(f'{it.get("category") or ""} {it.get("name") or ""}'),
                     title=it.get("name") or "", price=float(it["price"]), currency=it.get("currency") or "CNY",
-                    seller=it.get("shopName") or it.get("sourceShop"), url=it.get("detailUrl"),
+                    seller=it.get("shopName") or it.get("sourceShop"),
+                    url=it.get("detailUrl") or None,  # 无商品深链则留空，由 quality.hide_no_url 隐藏（不再用店铺首页冒充）
                     in_stock=it.get("status") == "in_stock", stock=it.get("stock"),
                     tags=[x for x in (it.get("category"), it.get("sourcePlatform")) if x],
-                    extra={"origin": it.get("sourceShop"), "last_seen": it.get("lastSeenAt")})
+                    extra={"origin": it.get("sourceShop"), "last_seen": it.get("lastSeenAt"),
+                           "source_url": it.get("sourceUrl"), "has_detail": bool(it.get("detailUrl"))})
 
 class ApiNav:
     id, use_proxy, use_browser = "apinav", False, False

@@ -39,3 +39,6 @@ SITE_URL = os.getenv("SITE_URL", "https://mooo.si").rstrip("/")
 OFFER_TTL_H = float(os.getenv("OFFER_TTL_H", "48"))   # 轮转分页来源报价多久未再出现即过期
 CYCLE_BYTE_BUDGET_MB = float(os.getenv("CYCLE_BYTE_BUDGET_MB", "150"))   # 单轮定向抓取流量上限，超出则剩余目标顺延
 FAIL_RETRY_H = float(os.getenv("FAIL_RETRY_H", "12"))   # 失败（非验证码）目标重试间隔
+
+LINK_PROBE_TTL_H = float(os.getenv("LINK_PROBE_TTL_H", "24"))
+LINK_PROBE_PER_CYCLE = int(os.getenv("LINK_PROBE_PER_CYCLE", "60"))

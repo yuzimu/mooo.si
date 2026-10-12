@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block main %}
+<section class="mx-auto max-w-6xl px-4 pt-10 sm:px-6">
+  <h1 class="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">{{ '生图模型' if image else '模型' }}中转比价</h1>
+  <p class="mt-2 text-sm text-slate-500">数据来自各站公开 /api/pricing。按次 = model_price × 分组倍率；按量 = model_ratio × 2 × 分组倍率（$/1M 输入）。</p>
+  <form class="mt-4 flex flex-wrap gap-2" method="get">
+    <input type="hidden" name="image" value="{{ image }}">
+    <input name="q" value="{{ q }}" placeholder="过滤型号，如 gpt-image / flux / banana" class="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-white/10 dark:bg-ink-900">
+    <button class="rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white">搜索</button>
+    <a href="/models?image={{ 0 if image else 1 }}" class="rounded-xl border border-slate-200 px-4 py-2 text-sm dark:border-white/10">{{ '看全部模型' if image else '只看生图' }}</a>
+  </form>
+  <div class="mt-6 overflow-x-auto rounded-2xl border border-slate-200 dark:border-white/[.07]">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-left text-xs text-slate-500 dark:bg-white/[.03]"><tr>
+        <th class="px-4 py-2">模型</th><th class="px-4 py-2 text-right">最低价</th><th class="px-4 py-2">单位</th>
+        <th class="px-4 py-2">最便宜中转</th><th class="px-4 py-2 text-right">站点数</th>
+      </tr></thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-white/[.04]">
+      {% for r in rows %}
+        <tr>
+          <td class="px-4 py-2"><a href="/models/{{ r.model | urlencode }}" class="font-mono text-xs text-violet-600 hover:underline dark:text-violet-400">{{ r.model }}</a></td>
+          <td class="px-4 py-2 text-right font-mono font-bold">${{ r.min }}</td>
+          <td class="px-4 py-2 text-xs text-slate-500">{{ r.unit }}</td>
+          <td class="px-4 py-2 text-sm">{% if r.cheapest.slug %}<a href="/relay/{{ r.cheapest.slug }}" class="hover:underline">{{ r.cheapest.site }}</a>{% else %}{{ r.cheapest.site }}{% endif %}
+            <span class="text-xs text-slate-400">×{{ r.cheapest.group_ratio }}</span></td>
+          <td class="px-4 py-2 text-right font-mono">{{ r.count }}</td>
+        </tr>
+      {% else %}<tr><td colspan="5" class="px-4 py-8 text-center text-slate-500">暂无数据，等待下一轮中转巡检。</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

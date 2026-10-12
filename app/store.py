@@ -101,7 +101,8 @@ def save_target_offers(target_id: str, offers: list[dict]):
 
 def build_filter(q=None, category=None, source=None, in_stock=False, categories=None,
                  min_price=None, max_price=None):
-    f = {"dup": {"$ne": True}, "ignored": {"$ne": True}}
+    f = {"dup": {"$ne": True}, "ignored": {"$ne": True}, "junk": {"$ne": True},
+         "off_shelf": {"$ne": True}, "no_url": {"$ne": True}}
     if q:
         qt = query_tokens(q)
         f["kw"] = {"$all": qt} if qt else {"$exists": True}
@@ -121,7 +122,8 @@ def search(limit=200, sort="price", skip=0, **kw):
     return [_ns(d) for d in cur], db().offers.count_documents(f)
 
 def all_offers(categories=None):
-    f = {"dup": {"$ne": True}, "ignored": {"$ne": True}}
+    f = {"dup": {"$ne": True}, "ignored": {"$ne": True}, "junk": {"$ne": True},
+         "off_shelf": {"$ne": True}, "no_url": {"$ne": True}}
     if categories is not None: f["category"] = {"$in": list(categories)}
     return [_ns(d) for d in db().offers.find(f, {"kw": 0})]
 

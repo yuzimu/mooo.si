@@ -9,6 +9,7 @@ from .crawler import run_all
 from .discovery import all_sources
 from .net import client, check_proxy, meter
 from .platforms import fingerprint, CRAWLERS
+from . import quality
 from .platforms.catfk import resolve_item
 
 log = logging.getLogger("mooo.pipeline")
@@ -158,9 +159,15 @@ def cycle():
         store.db().pipeline_runs.insert_one({"stage": "cycle", "at": store.now(), "error": str(e)[:500]})
         log.error("%s", e); return {"error": str(e)}
     run_all(); disc = run_discovery()
-    purged = targets.purge()          # 先剔除非店铺/中转，避免占用抓取配额
-    tgt = run_targeted(); purged += targets.purge()   # 指纹结果出来后再剔除一次
-    res = {"egress": egress, "discovery": disc, "purged": purged, "targeted": tgt, "traffic": meter.snapshot(), "seconds": round(time.time() - t0)}
+    purged = targets.purge()
+    tgt = run_targeted(); purged += targets.purge()
+    # 质量：junk/分类、无深链、聚合源缺货、链接探活（限流）
+    q = {"junk": quality.apply_junk_and_category(),
+         "no_url": quality.hide_no_url(),
+         "oos": quality.hide_out_of_stock_aggregators(),
+         "probe": quality.probe_links(limit=config.LINK_PROBE_PER_CYCLE)}
+    res = {"egress": egress, "discovery": disc, "purged": purged, "targeted": tgt, "quality": q,
+           "traffic": meter.snapshot(), "seconds": round(time.time() - t0)}
     store.db().pipeline_runs.insert_one({"stage": "cycle", "at": store.now(), "result": res})
     log.info("cycle done %s", {k: res[k] for k in ("egress", "targeted", "seconds")} | {"bytes": res["traffic"]["bytes"]})
     return res

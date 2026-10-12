@@ -2,7 +2,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI, Request, Query, HTTPException
 from fastapi.responses import Response, RedirectResponse, PlainTextResponse
-from urllib.parse import urlsplit, quote
+from urllib.parse import urlsplit, quote, unquote
+import re
 from fastapi.templating import Jinja2Templates
 from . import config
 from . import store, targets
@@ -230,6 +231,55 @@ def go(request: Request, url: str = "", ok: int = 0):
     r.headers["X-Robots-Tag"] = "noindex, nofollow"
     return r
 
+
+@app.get("/models")
+def model_list(request: Request, q: str = "", image: int = 1):
+    """生图/重点模型横向比价：按型号聚合各中转最低有效价。"""
+    from collections import defaultdict
+    from .platforms.newapi import IMAGE_RE
+    rx = re.compile(q, re.I) if q else None
+    slugs = {t["_id"]: t.get("slug") for t in store.db().targets.find({"type": "relay"}, {"slug": 1})}
+    buckets = defaultdict(list)
+    for doc in store.db().relay_prices.find({}, {"site": 1, "url": 1, "models": 1}):
+        for m in doc.get("models") or []:
+            name = m.get("model") or ""; price = m.get("price") or 0
+            is_img = m.get("is_image") if "is_image" in m else bool(IMAGE_RE.search(name))
+            if image and not is_img: continue
+            if rx and not rx.search(name): continue
+            if price <= 0: continue
+            buckets[name].append({"site": doc.get("site"), "url": doc.get("url"), "target": doc["_id"],
+                                  "price": price, "unit": m.get("unit"), "group_ratio": m.get("group_ratio"),
+                                  "model_ratio": m.get("model_ratio"), "model_price": m.get("model_price"),
+                                  "quota_type": m.get("quota_type"), "slug": slugs.get(doc["_id"])})
+    rows = []
+    for name, offers in buckets.items():
+        offers.sort(key=lambda x: x["price"])
+        rows.append({"model": name, "count": len(offers), "min": offers[0]["price"], "unit": offers[0]["unit"],
+                     "cheapest": offers[0], "offers": offers[:20]})
+    rows.sort(key=lambda x: (-x["count"], x["min"]))
+    seo = {"title": ("生图模型中转比价" if image else "模型中转比价") + " · mooo.si",
+           "description": f"对比 {len(rows)} 个模型在各 new-api/one-api 中转站的有效价格（按次或 $/1M tokens）。",
+           "canonical": f"{config.SITE_URL}/models"}
+    return templates.TemplateResponse(request, "models.html", {"rows": rows[:200], "q": q, "image": image, "seo": seo})
+
+@app.get("/models/{model_name:path}")
+def model_detail(request: Request, model_name: str):
+    name = unquote(model_name)
+    offers = []
+    for doc in store.db().relay_prices.find({"models.model": name}, {"site": 1, "url": 1, "models": 1}):
+        for m in doc.get("models") or []:
+            if m.get("model") != name or not m.get("price"): continue
+            t = store.db().targets.find_one({"_id": doc["_id"]}, {"slug": 1, "type": 1}) or {}
+            offers.append({"site": doc.get("site"), "url": doc.get("url"), "slug": t.get("slug"), "type": t.get("type"),
+                           **{k: m.get(k) for k in ("price", "unit", "group_ratio", "model_ratio", "model_price",
+                                                     "completion_ratio", "quota_type", "is_image", "groups")}})
+    offers.sort(key=lambda x: x["price"])
+    if not offers: raise HTTPException(404)
+    seo = {"title": f"{name} 中转价格对比 · mooo.si",
+           "description": f"{name} 在 {len(offers)} 家中转的有效价，最低 ${offers[0]['price']}/{offers[0]['unit']}。",
+           "canonical": f"{config.SITE_URL}/models/{quote(name)}"}
+    return templates.TemplateResponse(request, "model_detail.html", {"model": name, "offers": offers, "seo": seo})
+
 @app.get("/robots.txt", response_class=PlainTextResponse)
 def robots():
     return f"User-agent: *\nAllow: /\nDisallow: /go\nDisallow: /api/\nDisallow: /*?*partial=\n\nSitemap: {config.SITE_URL}/sitemap.xml\n"
@@ -239,7 +289,7 @@ def sitemap():
     from xml.sax.saxutils import escape
     base = config.SITE_URL; now = store.now().strftime("%Y-%m-%d")
     urls = [(f"{base}/", "hourly", "1.0"), (f"{base}/shops", "daily", "0.8"), (f"{base}/relays", "daily", "0.8"),
-            (f"{base}/tg", "daily", "0.6"), (f"{base}/about", "monthly", "0.3")]
+            (f"{base}/tg", "daily", "0.6"), (f"{base}/about", "monthly", "0.3"), (f"{base}/models", "daily", "0.7")]
     used = set(store.db().offers.distinct("category", {"dup": {"$ne": True}, "ignored": {"$ne": True}}))
     urls += [(f"{base}/c/{c}", "daily", "0.7") for c in CATEGORIES if c in used]
     for t in store.db().targets.find({"$or": [{"health.offers": {"$gt": 0}}, {"health.models": {"$gt": 0}}]},

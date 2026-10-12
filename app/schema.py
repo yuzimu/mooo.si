@@ -37,19 +37,10 @@ CATEGORIES = {
 }
 SECTIONS = {"cards": "卡网", "relay": "中转", "tools": "AI 工具"}
 
-RULES = [("gcp", "gcp-trial"), ("google cloud", "gcp-trial"), ("nano banana", "nano-banana-api"),
-         ("firefly", "adobe-firefly"), ("adobe", "adobe-firefly"), ("leonardo", "leonardo"),
-         ("中转", "api-relay"), (" api", "api-relay"),
-         ("接码", "verify"), ("kyc", "verify"), ("验证", "verify"),
-         ("邮箱", "email"), ("gmail", "email"), ("outlook", "email"),
-         ("虚拟卡", "payment"), ("礼品卡", "payment"), ("paypal", "payment"),
-         ("gemini", "gemini"), ("google ai", "gemini"), ("grok", "grok"),
-         ("chatgpt", "chatgpt"), ("gpt", "chatgpt"), ("codex", "chatgpt"), ("openai", "chatgpt"), ("claude", "claude"),
-         ("cursor", "ai-tool"), ("kiro", "ai-tool"), ("perplexity", "ai-tool"), ("suno", "ai-tool"),
-         ("dreamina", "ai-tool"), ("即梦", "ai-tool"), ("muse", "ai-tool"), ("midjourney", "ai-tool"),
-         ("telegram", "social"), ("推特", "social"), ("twitter", "social"), ("x premium", "social"),
-         ("apple", "social"), ("多邻国", "social")]
-
 def guess_category(text: str) -> str:
-    t = " " + (text or "").lower()
-    return next((c for k, c in RULES if k in t), "other")
+    from .quality import guess_category as _g
+    return _g(text)
+
+def guess_subtypes(text: str) -> list[str]:
+    from .quality import guess_subtypes as _s
+    return _s(text)
