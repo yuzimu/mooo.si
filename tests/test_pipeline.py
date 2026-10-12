@@ -85,3 +85,14 @@ def test_purge_ignores_ai_products_and_blocks_readd():
     assert col.find_one({"_id": "web:cursor.so"})["status"] == "ignored"
     assert all(t["status"] != "ignored" for t in targets.search()[0])
     store.db().offers.delete_many({"target": "web:heck.ai"})
+
+
+def test_cycle_lease_lock():
+    from app import pipeline, store
+    store.db().locks.delete_many({})
+    assert pipeline._lock("cycle") is True
+    assert pipeline._lock("cycle") is False        # 未完成不开新一轮
+    pipeline.heartbeat()
+    store.db().locks.update_one({"_id": "cycle"}, {"$set": {"until": store.now().replace(year=2000)}})
+    assert pipeline._lock("cycle") is True         # 过期租约可接管
+    store.db().locks.delete_many({})

@@ -30,11 +30,24 @@ async def lifespan(app):
         from datetime import datetime
         from . import pipeline
         sched = BackgroundScheduler(timezone=config.TZ)
-        # 每 CRAWL_EVERY_HOURS 小时一轮（默认 2h，整点 + 0~10 分钟抖动）：代理检查 → 聚合源 → 发现 → 定向抓取 → 去重
-        sched.add_job(pipeline.cycle, "cron", hour=f"*/{config.CRAWL_EVERY_HOURS}", minute=7, jitter=600,
-                      max_instances=1, coalesce=True, misfire_grace_time=3600, id="cycle")
-        if store.db().offers.estimated_document_count() == 0:  # 首次启动空库时立即跑一轮
-            sched.add_job(pipeline.cycle, next_run_time=datetime.now())
+        # 一轮结束后 CRAWL_EVERY_HOURS 小时再跑下一轮（不按整点，避免重叠）；max_instances=1 + coalesce，
+        # 另有 Mongo 租约锁（心跳续租、过期视为僵死）防止多进程/容器重叠
+        from datetime import timedelta
+
+        def run_and_reschedule():
+            try:
+                pipeline.cycle()
+            finally:
+                sched.add_job(run_and_reschedule, "date", run_date=datetime.now() + timedelta(hours=config.CRAWL_EVERY_HOURS),
+                              id="cycle", replace_existing=True, max_instances=1, coalesce=True, misfire_grace_time=3600)
+        last = store.db().pipeline_runs.find_one({"stage": "cycle_done"}, sort=[("at", -1)])
+        nxt = datetime.now()
+        if last and last.get("at"):
+            from datetime import timezone
+            done = last["at"].replace(tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
+            nxt = max(nxt, done + timedelta(hours=config.CRAWL_EVERY_HOURS))
+        sched.add_job(run_and_reschedule, "date", run_date=nxt, id="cycle", replace_existing=True,
+                      max_instances=1, coalesce=True, misfire_grace_time=3600)
         sched.start()
     yield
     if sched: sched.shutdown(wait=False)
