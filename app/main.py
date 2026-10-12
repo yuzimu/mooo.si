@@ -185,7 +185,8 @@ def _target_page(request, typ, slug):
     t = store.db().targets.find_one({"slug": slug, "type": typ}) if typ else store.db().targets.find_one({"slug": slug})
     if not t: raise HTTPException(404)
     t["host"] = urlsplit(t["url"]).hostname
-    offers = [store._ns(d) for d in store.db().offers.find({"target": t["_id"], "dup": {"$ne": True}}, {"kw": 0}).sort("price", 1).limit(500)]
+    offers = [store._ns(d) for d in store.db().offers.find({"target": t["_id"], "dup": {"$ne": True}, "ignored": {"$ne": True}},
+                                                              {"kw": 0}).sort("price", 1).limit(500)]
     rp = store.db().relay_prices.find_one({"_id": t["_id"]}) or {}
     back = {"card_shop": ("/shops", "卡网店铺"), "relay": ("/relays", "API 中转站"), "tg": ("/tg", "TG 群组 / 频道")}.get(t["type"], ("/", "首页"))
     kind = TYPE_PATH.get(t["type"], "site")
@@ -239,7 +240,7 @@ def sitemap():
     base = config.SITE_URL; now = store.now().strftime("%Y-%m-%d")
     urls = [(f"{base}/", "hourly", "1.0"), (f"{base}/shops", "daily", "0.8"), (f"{base}/relays", "daily", "0.8"),
             (f"{base}/tg", "daily", "0.6"), (f"{base}/about", "monthly", "0.3")]
-    used = set(store.db().offers.distinct("category", {"dup": {"$ne": True}}))
+    used = set(store.db().offers.distinct("category", {"dup": {"$ne": True}, "ignored": {"$ne": True}}))
     urls += [(f"{base}/c/{c}", "daily", "0.7") for c in CATEGORIES if c in used]
     for t in store.db().targets.find({"$or": [{"health.offers": {"$gt": 0}}, {"health.models": {"$gt": 0}}]},
                                      {"slug": 1, "type": 1}).limit(20000):

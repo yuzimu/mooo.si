@@ -108,7 +108,7 @@ def run_targeted(limit=None):
     col.update_many({"platform": "ldxp"}, {"$set": {"status": "blocked_captcha", "fp": {"platform": "ldxp", "status": "blocked_captcha",
                     "note": "阿里云 ESA 滑块，跳过；商品经 kawanghub/aigood 间接覆盖"}}})
     cand = list(col.find({"type": {"$in": ["card_shop", "relay", "unknown"]}, "pending_item": {"$exists": False}, "platform": {"$ne": "ldxp"},
-                          "status": {"$nin": ["item_gone"]}}))
+                          "status": {"$nin": ["item_gone", "ignored"]}}))
     for t in cand: t["_prio"] = priority(t)
     cand.sort(key=lambda t: -t["_prio"])
     # 最近 TARGET_MIN_INTERVAL_H 小时内成功抓过的目标本轮跳过，把配额让给其它目标（错峰）
@@ -157,8 +157,10 @@ def cycle():
     except Exception as e:  # noqa: BLE001
         store.db().pipeline_runs.insert_one({"stage": "cycle", "at": store.now(), "error": str(e)[:500]})
         log.error("%s", e); return {"error": str(e)}
-    run_all(); disc = run_discovery(); tgt = run_targeted()
-    res = {"egress": egress, "discovery": disc, "targeted": tgt, "traffic": meter.snapshot(), "seconds": round(time.time() - t0)}
+    run_all(); disc = run_discovery()
+    purged = targets.purge()          # 先剔除非店铺/中转，避免占用抓取配额
+    tgt = run_targeted(); purged += targets.purge()   # 指纹结果出来后再剔除一次
+    res = {"egress": egress, "discovery": disc, "purged": purged, "targeted": tgt, "traffic": meter.snapshot(), "seconds": round(time.time() - t0)}
     store.db().pipeline_runs.insert_one({"stage": "cycle", "at": store.now(), "result": res})
     log.info("cycle done %s", {k: res[k] for k in ("egress", "targeted", "seconds")} | {"bytes": res["traffic"]["bytes"]})
     return res
@@ -170,4 +172,4 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     store.ensure_indexes(); targets.ensure_indexes()
     stage = sys.argv[1] if len(sys.argv) > 1 else "daily"
-    print({"daily": cycle, "cycle": cycle, "discovery": run_discovery, "targeted": run_targeted, "dedupe": dedupe}[stage]())
+    print({"daily": cycle, "cycle": cycle, "discovery": run_discovery, "targeted": run_targeted, "dedupe": dedupe, "purge": targets.purge}[stage]())

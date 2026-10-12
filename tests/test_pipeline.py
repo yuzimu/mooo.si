@@ -68,3 +68,20 @@ def test_partial_save_and_page_window():
     store.save_run("rot", [o("b"), o("c")], partial=True)
     assert store.db().offers.count_documents({"source": "rot"}) == 3
     store.db().offers.delete_many({"source": "rot"})
+
+
+def test_purge_ignores_ai_products_and_blocks_readd():
+    from app import store, targets
+    col = store.db().targets
+    targets.upsert([("https://cursor.so/", None, "awesome", store.now()), ("https://heck.ai/", None, "x", store.now()),
+                    ("https://shop.goodcard.example/", "card_shop", "发卡", store.now())], "github-lists")
+    assert col.find_one({"_id": "web:cursor.so"})["status"] == "ignored"   # 黑名单：入库即 ignored
+    store.db().offers.insert_one({"source": "catfk", "target": "web:heck.ai", "title": "x", "price": 1})
+    targets.purge()
+    assert col.find_one({"_id": "web:heck.ai"})["status"] == "ignored"
+    assert col.find_one({"_id": "web:shop.goodcard.example"})["status"] != "ignored"
+    assert store.db().offers.find_one({"target": "web:heck.ai"})["ignored"] is True
+    targets.upsert([("https://cursor.so/pricing", None, "again", store.now())], "offers")
+    assert col.find_one({"_id": "web:cursor.so"})["status"] == "ignored"
+    assert all(t["status"] != "ignored" for t in targets.search()[0])
+    store.db().offers.delete_many({"target": "web:heck.ai"})

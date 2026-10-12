@@ -51,6 +51,64 @@ def slugify(key: str) -> str:
     k = key.split(":", 1)[1] if key.startswith(("web:", "tg:")) else key
     return re.sub(r"[^a-z0-9-]+", "-", k.lower().replace(":", "-").replace(".", "-")).strip("-")
 
+# —— 剔除规则：通用 AI 产品 / SaaS / 官网 / 文档 / 无关站点，不是卡网店铺、中转或 TG ——
+DENY_PRODUCT = {
+    # AI 产品与大厂官网
+    "openai.com", "chatgpt.com", "anthropic.com", "claude.ai", "gemini.google.com", "deepmind.google", "x.ai", "grok.com",
+    "meta.ai", "huggingface.co", "deepseek.com", "moonshot.cn", "kimi.com", "doubao.com", "chatglm.cn", "zhipuai.cn", "bigmodel.cn",
+    "tongyi.aliyun.com", "aliyun.com", "xfyun.cn", "kunlun.com", "baidu.com", "yiyan.baidu.com", "minimaxi.com", "perplexity.ai",
+    "poe.com", "character.ai", "heypi.com", "inflection.ai", "mistral.ai", "cohere.com", "together.ai", "groq.com", "replicate.com",
+    "midjourney.com", "stability.ai", "runwayml.com", "pika.art", "suno.com", "elevenlabs.io", "leonardo.ai", "firefly.adobe.com",
+    "adobe.com", "notion.so", "jasper.ai", "copy.ai", "writesonic.com", "grammarly.com", "deepl.com", "canva.com",
+    # 编程工具 / SaaS
+    "cursor.so", "cursor.com", "codeium.com", "windsurf.com", "devin.ai", "codium.ai", "qodo.ai", "bito.ai", "tabnine.com",
+    "github.dev", "githubcopilot.com", "replit.com", "vercel.com", "v0.dev", "bolt.new", "lovable.dev",
+    "chatdoc.com", "chatpdf.com", "humata.ai", "chatbase.co", "heck.ai", "truthgpt.one", "open-assistant.io", "lmsys.org",
+    "lmarena.ai", "deeplearning.ai", "coursera.org", "kaggle.com",
+    # 搜索 / 统计徽章 / 文档 / 无关
+    "duckduckgo.com", "bing.com", "star-history.com", "contrib.rocks", "shields.io", "readthedocs.io", "gitbook.io",
+    "medium.com", "zhihu.com", "csdn.net", "juejin.cn", "bilibili.com", "nordaccount.com", "nordvpn.com",
+    "wikipedia.org", "arxiv.org", "discord.com", "discord.gg", "reddit.com", "npmjs.com", "pypi.org", "docker.com",
+}
+KEEP_PLATFORMS = {"ldxp", "catfk", "dujiaoka", "acg-faka", "new-api", "one-api", "telegram"}
+
+def _denied(host: str) -> bool:
+    h = (host or "").lower().removeprefix("www.")
+    return h in DENY_PRODUCT or any(h.endswith("." + d) for d in DENY_PRODUCT)
+
+def ignore_reason(t: dict) -> str | None:
+    """返回剔除原因；None 表示保留（店铺/中转/TG 或尚待指纹判定）。"""
+    from urllib.parse import urlsplit
+    host = urlsplit(t.get("url") or "").hostname or t.get("_id", "").split(":", 1)[-1]
+    if (t.get("type") == "tg" or t.get("platform") in KEEP_PLATFORMS) and not _denied(host): return None
+    if _denied(host): return "AI 产品/官网/通用站点，非店铺或中转"
+    srcs = set((t.get("sources") or {}).keys())
+    if t.get("type") == "unknown" and srcs and srcs <= {"github-lists"}:
+        return "仅来自 awesome list 的通用 AI 工具，非店铺或中转"
+    fp = t.get("fp") or {}
+    if t.get("type") == "unknown" and t.get("fp_at") and not fp.get("platform") \
+            and t.get("status") not in ("blocked_captcha", "blocked_cf", "down", "error"):
+        return "指纹无发卡/中转特征（非店铺、非 new-api/one-api）"
+    return None
+
+def purge():
+    """把命中剔除规则的目标标记 ignored（保留记录、注明原因、不再调度），并隐藏其报价。返回新剔除数。"""
+    col = store.db().targets; n = 0
+    for t in col.find({"status": {"$ne": "ignored"}, "platform": {"$nin": ["ldxp", "telegram"]}},
+                      {"url": 1, "type": 1, "platform": 1, "sources": 1, "fp": 1, "fp_at": 1, "status": 1}):
+        r = ignore_reason(t)
+        if r:
+            col.update_one({"_id": t["_id"]}, {"$set": {"status": "ignored", "ignore_reason": r, "ignored_at": now()}}); n += 1
+    ign = [t["_id"] for t in col.find({"status": "ignored"}, {"_id": 1})]
+    hosts = [i.split(":", 1)[1] for i in ign if i.startswith("web:")]
+    off = store.db().offers
+    off.update_many({"ignored": True}, {"$unset": {"ignored": 1}})
+    if ign:
+        off.update_many({"target": {"$in": ign}}, {"$set": {"ignored": True}})
+        rx = "^https?://(www\\.)?(" + "|".join(re.escape(h) for h in hosts) + ")(?:[:/]|$)" if hosts else None
+        if rx: off.update_many({"url": {"$regex": rx}, "source": {"$nin": ["apinav", "priceai", "aigood", "ldxp-showcase"]}}, {"$set": {"ignored": True}})
+    return n
+
 def upsert(mentions, source: str):
     """mentions: iterable of (url, hint, context, seen_at)。按 key 合并计数。"""
     col = store.db().targets; n = 0; ts = now()
@@ -63,6 +121,8 @@ def upsert(mentions, source: str):
         if hint and a["type"] == "unknown": a["type"] = hint
     for key, a in agg.items():
         ins = {"first_seen": a["seen"], "status": "new", "health": {}, "platform": a["platform"], "type": a["type"]}
+        if _denied(urlsplit(a["url"]).hostname):   # 黑名单域名：即便被重新发现也只以 ignored 记录，永不调度
+            ins.update(status="ignored", ignore_reason="AI 产品/官网/通用站点，非店铺或中转")
         upd = {"$setOnInsert": ins,
                "$set": {"url": a["url"], "last_seen": ts, "slug": slugify(key), f"sources.{source}": a["count"], "sample": (a["ctx"] or "")[:300]},
                "$inc": {"mentions": a["count"]}, "$addToSet": {"refs": {"$each": [a["ref"]][:1]}}}
@@ -87,6 +147,7 @@ def search(type=None, q=None, platform=None, status=None, limit=60, skip=0):
     if type: f["type"] = type
     if platform: f["platform"] = platform
     if status: f["status"] = status
+    else: f["status"] = {"$ne": "ignored"}   # 已剔除目标默认不展示
     if q: f["$or"] = [{"_id": {"$regex": re.escape(q.lower())}}, {"name": {"$regex": re.escape(q), "$options": "i"}},
                       {"sample": {"$regex": re.escape(q), "$options": "i"}}]
     col = store.db().targets
