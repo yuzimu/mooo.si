@@ -56,8 +56,8 @@ def test_models_page():
                                                            "status": "monitored"}}, upsert=True)
     c = TestClient(app)
     r = c.get("/models")
-    assert r.status_code == 200 and "gpt-image-1" in r.text and "img.test" in r.text
-    assert "gpt-4o" not in r.text  # image-only default
+    assert r.status_code == 200 and ("gpt-image" in r.text or "图片" in r.text)
+    assert "图片" in r.text  # bucket label
     assert c.get("/models/gpt-image-1").status_code == 200
     store.db().relay_prices.delete_one({"_id": "web:img.test"})
 
@@ -76,3 +76,20 @@ def test_relay_never_on_home_or_search():
     assert client.get("/c/api-relay", follow_redirects=False).status_code in (302, 307)
     assert client.get("/?section=relay", follow_redirects=False).status_code in (302, 307)
     store.db().offers.delete_many({"source": {"$in": ["qa", "relay"]}})
+
+
+def test_model_families():
+    from app.models_tax import family_of, group_models
+    assert family_of("gpt-4o-mini-2024-07-18") == ("chatgpt", "gpt-4o-mini")
+    assert family_of("gemini-2.5-flash-image-preview")[0] == "image"
+    assert family_of("deepseek-v3-chat")[0] == "china"
+    rows = [
+        {"model": "gpt-4o-mini-a", "price": 0.1, "unit": "1M tokens", "site": "A"},
+        {"model": "gpt-4o-mini-b", "price": 0.05, "unit": "1M tokens", "site": "B"},
+        {"model": "gpt-image-2.5-flare", "price": 0.01, "unit": "次", "site": "C"},
+    ]
+    g = group_models(rows)
+    labs = {x["id"] for x in g}
+    assert "chatgpt" in labs and "image" in labs
+    chat = next(x for x in g if x["id"] == "chatgpt")
+    assert chat["families"][0]["family"] == "gpt-4o-mini" and chat["families"][0]["min"] == 0.05

@@ -240,34 +240,31 @@ def go(request: Request, url: str = "", ok: int = 0):
 
 
 @app.get("/models")
-def model_list(request: Request, q: str = "", image: int = 1):
-    """生图/重点模型横向比价：按型号聚合各中转最低有效价。"""
-    from collections import defaultdict
-    from .platforms.newapi import IMAGE_RE
+def model_list(request: Request, q: str = "", bucket: str = ""):
+    """中转模型比价：按 国模/ChatGPT/Claude/Gemini/Grok/图片/视频 归桶，变体合并为家族卡片。"""
+    from .models_tax import group_models, family_of, BUCKET_LABEL, BUCKET_ORDER
     rx = re.compile(q, re.I) if q else None
     slugs = {t["_id"]: t.get("slug") for t in store.db().targets.find({"type": "relay"}, {"slug": 1})}
-    buckets = defaultdict(list)
+    flat = []
     for doc in store.db().relay_prices.find({}, {"site": 1, "url": 1, "models": 1}):
         for m in doc.get("models") or []:
             name = m.get("model") or ""; price = m.get("price") or 0
-            is_img = m.get("is_image") if "is_image" in m else bool(IMAGE_RE.search(name))
-            if image and not is_img: continue
-            if rx and not rx.search(name): continue
             if price <= 0: continue
-            buckets[name].append({"site": doc.get("site"), "url": doc.get("url"), "target": doc["_id"],
-                                  "price": price, "unit": m.get("unit"), "group_ratio": m.get("group_ratio"),
-                                  "model_ratio": m.get("model_ratio"), "model_price": m.get("model_price"),
-                                  "quota_type": m.get("quota_type"), "slug": slugs.get(doc["_id"])})
-    rows = []
-    for name, offers in buckets.items():
-        offers.sort(key=lambda x: x["price"])
-        rows.append({"model": name, "count": len(offers), "min": offers[0]["price"], "unit": offers[0]["unit"],
-                     "cheapest": offers[0], "offers": offers[:20]})
-    rows.sort(key=lambda x: (-x["count"], x["min"]))
-    seo = {"title": ("生图模型中转比价" if image else "模型中转比价") + " · mooo.si",
-           "description": f"对比 {len(rows)} 个模型在各 new-api/one-api 中转站的有效价格（按次或 $/1M tokens）。",
+            if rx and not rx.search(name): continue
+            b, fam = family_of(name)
+            if bucket and b != bucket: continue
+            flat.append({"model": name, "family": fam, "bucket": b, "price": price, "unit": m.get("unit"),
+                         "group_ratio": m.get("group_ratio"), "model_ratio": m.get("model_ratio"),
+                         "model_price": m.get("model_price"), "quota_type": m.get("quota_type"),
+                         "site": doc.get("site"), "url": doc.get("url"), "slug": slugs.get(doc["_id"])})
+    groups = group_models(flat)
+    seo = {"title": "中转模型比价（国模 / GPT / Claude / 生图）· mooo.si",
+           "description": f"按家族合并后的中转模型价：{sum(g['n_families'] for g in groups)} 个家族，{len(flat)} 条报价。",
            "canonical": f"{config.SITE_URL}/models"}
-    return templates.TemplateResponse(request, "models.html", {"rows": rows[:200], "q": q, "image": image, "seo": seo})
+    return templates.TemplateResponse(request, "models.html", {
+        "groups": groups, "q": q, "bucket": bucket, "buckets": [(b, BUCKET_LABEL[b]) for b in BUCKET_ORDER if b != "other"],
+        "total_flat": len(flat), "seo": seo})
+
 
 @app.get("/models/{model_name:path}")
 def model_detail(request: Request, model_name: str):
