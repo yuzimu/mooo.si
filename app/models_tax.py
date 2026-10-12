@@ -214,6 +214,8 @@ def estimate(row: dict, bucket: str, fam: str, rmb_per_usd: float | None) -> dic
             out[k] = round(out[k], 6)
             out[k.replace("usd", "cny")] = round(out[k] * rate, 4)
     out["rate"] = rate
+    if gr < 0.01:
+        out["suspect"] = True; out["note"] += f"；分组倍率 ×{gr:g} 异常低（可能是内部/限量分组）"
     if rmb_per_usd is not None and rmb_per_usd < 0.3:
         out["suspect"] = True; out["note"] += f"；充值单价 ¥{rmb_per_usd}/$ 异常低，需核对"
     return out
