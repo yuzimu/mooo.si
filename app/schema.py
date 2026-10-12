@@ -32,7 +32,7 @@ CATEGORIES = {
     "payment": ("虚拟卡 / 礼品卡", "wallet", "cards"),
     "social": ("社交 / 会员", "message-circle", "cards"), # TG/X/Apple ID/多邻国等
     "ai-tool": ("AI 工具账号", "wand-sparkles", "tools"), # Cursor/Kiro/Perplexity 等（非大厂对话账号）
-    "other": ("其他", "package", "cards"),
+    "other": ("未知", "package", "cards"),
 }
 SECTIONS = {"cards": "卡网", "relay": "中转", "tools": "AI 工具"}
 

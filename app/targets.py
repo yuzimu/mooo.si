@@ -119,7 +119,9 @@ def upsert(mentions, source: str):
         a = agg.setdefault(c["key"], {**c, "count": 0, "ctx": ctx, "seen": seen or ts})
         a["count"] += 1
         if hint and a["type"] == "unknown": a["type"] = hint
+    dead = {x["_id"] for x in store.db().tombstones.find({"_id": {"$in": list(agg)}}, {"_id": 1})}
     for key, a in agg.items():
+        if key in dead: continue   # 已因不可达删除的中转，不再自动加回
         ins = {"first_seen": a["seen"], "status": "new", "health": {}, "platform": a["platform"], "type": a["type"]}
         if _denied(urlsplit(a["url"]).hostname):   # 黑名单域名：即便被重新发现也只以 ignored 记录，永不调度
             ins.update(status="ignored", ignore_reason="AI 产品/官网/通用站点，非店铺或中转")

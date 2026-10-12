@@ -275,7 +275,7 @@ def model_list(request: Request, q: str = "", bucket: str = ""):
            "description": f"按家族合并后的中转模型价（统一换算人民币）：{sum(g['n_families'] for g in groups)} 个家族，{len(flat)} 条报价。",
            "canonical": f"{config.SITE_URL}/models"}
     return templates.TemplateResponse(request, "models.html", {
-        "groups": groups, "q": q, "bucket": bucket, "buckets": [(b, BUCKET_LABEL[b]) for b in BUCKET_ORDER if b != "other"],
+        "groups": groups, "q": q, "bucket": bucket, "buckets": [(b, BUCKET_LABEL[b]) for b in BUCKET_ORDER],
         "total_flat": len(flat), "assume": ASSUME, "seo": seo})
 
 

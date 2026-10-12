@@ -54,7 +54,11 @@ def ensure_indexes():
     d.offers.create_index([("kw", ASCENDING)])
     d.offers.create_index([("price", ASCENDING)])
     d.raw.create_index([("source", ASCENDING), ("fetched_at", DESCENDING)])
-    d.raw.create_index("fetched_at", expireAfterSeconds=int(timedelta(days=config.RAW_RETENTION_DAYS).total_seconds()))
+    ttl = int(timedelta(days=config.RAW_RETENTION_DAYS).total_seconds())
+    try:
+        d.raw.create_index("fetched_at", expireAfterSeconds=ttl)
+    except Exception:  # noqa: BLE001  旧 TTL 不同 → collMod 更新
+        d.command("collMod", "raw", index={"keyPattern": {"fetched_at": 1}, "expireAfterSeconds": ttl})
     d.crawl_runs.create_index([("started_at", DESCENDING)])
     d.offers.create_index([("target", ASCENDING)])
     d.offers.create_index([("dedupe_key", ASCENDING)])
@@ -64,7 +68,14 @@ def save_run(source: str, offers: list[dict], raw=None, error=None, partial=Fals
     d = db(); ts = now()
     run = {"source": source, "started_at": ts, "count": len(offers), "error": error}
     if error is None:
-        if raw is not None: d.raw.insert_one({"source": source, "fetched_at": ts, "payload": raw})
+        if raw is not None:
+            import json as _json, zlib as _zlib
+            from bson import Binary
+            blob = _zlib.compress(_json.dumps(raw, ensure_ascii=False, default=str).encode(), 6)
+            if len(blob) <= config.RAW_MAX_BYTES:  # 压缩后超上限则只记大小，不存正文
+                d.raw.insert_one({"source": source, "fetched_at": ts, "z": Binary(blob), "size": len(blob)})
+            else:
+                d.raw.insert_one({"source": source, "fetched_at": ts, "size": len(blob), "truncated": True})
         docs = []
         for o in offers:
             o = dict(o); o["fetched_at"] = ts; o["dedupe_key"] = _dkey(o.get("url"))

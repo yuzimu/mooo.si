@@ -7,6 +7,9 @@ services:
     env_file: [.env]
     # 用 host 网络以访问只绑定 127.0.0.1 的 1Panel MongoDB；应用自身监听 127.0.0.1:8790
     network_mode: host
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
     volumes:
       # tg-collector 数据库：只读挂载，应用以 sqlite immutable 模式打开，绝不写入
       - /opt/tg-collector/messages.db:/tg/messages.db:ro

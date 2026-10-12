@@ -125,7 +125,7 @@ TEXT_CANON = [
 
 BUCKET_ORDER = ["chatgpt", "claude", "gemini", "grok", "china", "image", "video", "other"]
 BUCKET_LABEL = {"chatgpt": "ChatGPT", "claude": "Claude", "gemini": "Gemini", "grok": "Grok",
-                "china": "国模", "image": "图片", "video": "视频", "other": "其他"}
+                "china": "国模", "image": "图片", "video": "视频", "other": "未知"}
 
 
 def family_of(name: str) -> tuple[str, str]:
@@ -176,6 +176,9 @@ def estimate(row: dict, bucket: str, fam: str, rmb_per_usd: float | None) -> dic
     qt = row.get("quota_type"); mp = row.get("model_price") or 0; mr = row.get("model_ratio") or 0
     cr = row.get("completion_ratio"); gr = row.get("group_ratio") or 1
     cr = cr if cr not in (None, 0) else 1
+    if not mp and not mr and row.get("price"):  # 旧数据只存了换算后价格
+        if row.get("unit") == "次": mp, qt = row["price"] / gr, 1
+        else: mr = row["price"] / 2 / gr
     rate = rmb_per_usd or ASSUME["fallback_rmb_per_usd"]
     out = {"billing": None, "usd": None, "unit": None, "per_s_usd": None, "clip5_usd": None, "clip10_usd": None,
            "note": "", "suspect": False}
