@@ -128,7 +128,7 @@
   </div>
   {% if has_more %}
   <div class="mt-8 text-center" x-data="{page: {{ page }}, busy: false, done: false}">
-    <button x-show="!done" @click="busy=true; fetch(location.pathname + '{{ qs(page='__P__') | replace('#market','') }}'.replace('__P__', page+1) + '&partial=1').then(r=>r.text().then(t=>({t, more: r.headers.get('X-Has-More')==='1'}))).then(({t,more})=>{document.getElementById('groups').insertAdjacentHTML('beforeend', t); lucide.createIcons(); page++; done=!more; busy=false})"
+    <button x-show="!done" @click="busy=true; fetch(location.pathname + '{{ qs(page='__P__') | replace('#market','') }}'.replace('__P__', page+1) + '&partial=1').then(r=>{if(!r.headers.has('X-Has-More'))throw new Error('not a fragment');return r.text().then(t=>({t, more: r.headers.get('X-Has-More')==='1'}))}).then(({t,more})=>{document.getElementById('groups').insertAdjacentHTML('beforeend', t); lucide.createIcons(); page++; done=!more; busy=false}).catch(()=>{busy=false; done=true})"
       class="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-violet-400 hover:text-violet-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-200 dark:hover:text-white">
       <i data-lucide="loader-circle" class="h-4 w-4 animate-spin" x-show="busy" x-cloak></i>
       <span x-text="busy ? '加载中…' : '加载更多商品'"></span>

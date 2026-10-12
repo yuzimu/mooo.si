@@ -29,3 +29,10 @@ def test_seo_and_go():
     slug = store.db().targets.find_one({"_id": "web:api.relay.example"})["slug"]
     assert client.get(f"/relay/{slug}").status_code == 200
     assert "投递店铺" in client.get("/about").text
+
+
+def test_load_more_returns_fragment_on_all_routes():
+    client = TestClient(app)
+    for path in ["/", "/search?q=gemini", "/c/gemini"]:
+        r = client.get(path + ("&" if "?" in path else "?") + "page=2&partial=1")
+        assert r.status_code == 200 and "X-Has-More" in r.headers and "<html" not in r.text, path

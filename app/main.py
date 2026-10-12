@@ -118,8 +118,9 @@ def seo_index(request, category, q, section, ctx):
 
 @app.get("/search")
 def search_page(request: Request, q: str = "", category: str = "", source: str = "",
-                in_stock: bool = False, sort: str = "featured"):
-    return index(request, q=q, category=category, source=source, in_stock=in_stock, sort=sort)
+                in_stock: bool = False, sort: str = "featured", page: int = 1, partial: bool = False):
+    # 必须透传 page/partial：否则"加载更多"拿到整页 HTML 插进 #groups，页面重复、移动端 viewport 错乱
+    return index(request, q=q, category=category, source=source, in_stock=in_stock, sort=sort, page=page, partial=partial)
 
 @app.get("/about")
 def about(request: Request):
@@ -175,9 +176,10 @@ def api_targets(type: str = "", q: str = "", platform: str = "", status: str = "
 
 
 @app.get("/c/{category}")
-def category_page(request: Request, category: str, in_stock: bool = False, sort: str = "featured", page: int = 1):
+def category_page(request: Request, category: str, in_stock: bool = False, sort: str = "featured", page: int = 1,
+                  source: str = "", partial: bool = False):
     if category not in CATEGORIES: raise HTTPException(404)
-    return index(request, category=category, in_stock=in_stock, sort=sort, page=page)
+    return index(request, category=category, source=source, in_stock=in_stock, sort=sort, page=page, partial=partial)
 
 def _target_page(request, typ, slug):
     t = store.db().targets.find_one({"slug": slug, "type": typ}) if typ else store.db().targets.find_one({"slug": slug})
