@@ -51,6 +51,19 @@ class NewAPI:
         site = t.get("name") or t["_id"].split(":", 1)[1]
         offers = list(parse(d, site, base))
         rows = getattr(parse, "rows", [])
-        store.db().relay_prices.replace_one({"_id": t["_id"]}, {"_id": t["_id"], "site": site, "url": base, "models": rows,
-                                                                "updated_at": store.now()}, upsert=True)
+        cur = None
+        try:
+            sleep()
+            rs = c.get(base + "/api/status", timeout=15)
+            if rs.status_code == 200:
+                from ..models_tax import rate_info
+                cur = rate_info((rs.json() or {}).get("data") or {})
+        except Exception:  # noqa: BLE001
+            cur = None
+        doc = {"_id": t["_id"], "site": site, "url": base, "models": rows, "updated_at": store.now()}
+        if cur: doc["currency"] = cur
+        else:
+            old = store.db().relay_prices.find_one({"_id": t["_id"]}, {"currency": 1}) or {}
+            if old.get("currency"): doc["currency"] = old["currency"]
+        store.db().relay_prices.replace_one({"_id": t["_id"]}, doc, upsert=True)
         return offers, {"models": len(rows), "image_models": sum(1 for x in rows if x.get("is_image"))}

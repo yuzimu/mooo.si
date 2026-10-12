@@ -76,7 +76,7 @@ def save_run(source: str, offers: list[dict], raw=None, error=None, partial=Fals
             else:
                 o["category"] = guess_category(text)
             o["product_key"] = product_key(text)
-            o["product"] = canonical_product(text) or o.get("product") or (o.get("title") or "")[:80]
+            o["product"] = canonical_product(o.get("title") or text) or (o.get("title") or o.get("product") or "")[:80]
             o["kw"] = sorted(tokens(" ".join([o.get("product") or "", o.get("title") or "",
                                               o.get("seller") or "", " ".join(o.get("tags") or [])])))
             docs.append(o)
@@ -110,7 +110,7 @@ def save_target_offers(target_id: str, offers: list[dict]):
         else:
             o["category"] = guess_category(text)
         o["product_key"] = product_key(text)
-        o["product"] = canonical_product(text) or o.get("product") or (o.get("title") or "")[:80]
+        o["product"] = canonical_product(o.get("title") or text) or (o.get("title") or o.get("product") or "")[:80]
         o["kw"] = sorted(tokens(" ".join([o.get("product") or "", o.get("title") or "", o.get("seller") or "",
                                           " ".join(o.get("tags") or [])])))
         docs.append(o)

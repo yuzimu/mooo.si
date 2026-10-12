@@ -142,7 +142,7 @@ def product_key(text: str) -> str:
     dur = next((x for x, rx in DURATION if rx.search(t)), None)
 
     # 纯邮箱（无成品/代充信号）
-    if brand in ("gmail", "outlook", "icloud") and form in (None, "email", "account") and not re.search(r"plus|pro|claude|gemini|成品号|代充|接码|接马", t, re.I):
+    if brand in ("gmail", "outlook", "icloud") and form in (None, "email", "account") and not re.search(r"plus|pro|claude|gemini|成品号|代充|接码|接马", t, re.I):  # noqa: E501
         form = "email"
         if not tier and re.search(r"新号|全新|注册|空白|母号|free|普通|免费", t, re.I):
             tier = "free"
@@ -198,7 +198,7 @@ def canonical_product(text: str) -> str:
     # 模糊前缀
     for k, v in labels.items():
         if key.startswith(k): return v
-    return (text or "")[:80]
+    return None   # 无规范名：调用方回退到原标题，避免 product 自我拼接膨胀
 
 # —— 下架 ——
 OFF_SHELF = re.compile(
@@ -226,7 +226,7 @@ def apply_junk_and_category(batch_limit=100000):
     d = store.db(); n_junk = n_cat = n_key = 0
     for o in d.offers.find({"ignored": {"$ne": True}},
                            {"title": 1, "product": 1, "price": 1, "category": 1, "tags": 1, "junk": 1, "source": 1}).limit(batch_limit):
-        text = f'{o.get("product") or ""} {o.get("title") or ""}'
+        text = o.get("title") or o.get("product") or ""   # 只用原标题，避免 product 被反复拼接
         upd = {}
         reason = is_junk(o)
         if reason:
@@ -251,7 +251,8 @@ def apply_junk_and_category(batch_limit=100000):
             upd["category"] = cat; n_cat += 1
         if key != o.get("product_key"):
             upd["product_key"] = key; n_key += 1
-        if name and name != o.get("product"):
+        name = name or (o.get("title") or "")[:80]
+        if name != o.get("product"):
             upd["product"] = name
         tags = list(dict.fromkeys([*(o.get("tags") or []), *subs]))
         if tags != (o.get("tags") or []): upd["tags"] = tags

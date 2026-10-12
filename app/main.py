@@ -239,50 +239,58 @@ def go(request: Request, url: str = "", ok: int = 0):
     return r
 
 
+def _relay_rows(match=None):
+    """展开 relay_prices → 带家族、计费归一与 ¥ 估算的行。match(model, bucket, family) 过滤。"""
+    from .models_tax import classify, estimate, rate_info
+    slugs = {t["_id"]: t.get("slug") for t in store.db().targets.find({"type": "relay"}, {"slug": 1})}
+    out = []
+    for doc in store.db().relay_prices.find({}, {"site": 1, "url": 1, "models": 1, "currency": 1}):
+        cur = doc.get("currency") or rate_info(None)
+        for m in doc.get("models") or []:
+            name = m.get("model") or ""
+            b, fam, var = classify(name)
+            if match and not match(name, b, fam): continue
+            gr = m.get("group_ratio") or 1
+            est = estimate({**m, "group_ratio": gr}, b, fam, cur.get("rmb_per_quota_usd"))
+            if not est.get("usd"): continue
+            out.append({"model": name, "family": fam, "variant": var, "bucket": b, "price": est["usd"], "cny": est.get("cny"),
+                        "unit": est["unit"], "billing": est["billing"], "note": est["note"], "suspect": est["suspect"],
+                        "per_s_cny": est.get("per_s_cny"), "clip5_cny": est.get("clip5_cny"), "clip10_cny": est.get("clip10_cny"),
+                        "group_ratio": gr, "model_ratio": m.get("model_ratio"), "model_price": m.get("model_price"),
+                        "completion_ratio": m.get("completion_ratio"), "quota_type": m.get("quota_type"),
+                        "rate": est["rate"], "rate_src": cur.get("source"), "cur_display": cur.get("display"),
+                        "mislabeled": cur.get("mislabeled"), "rate_warn": cur.get("warn"),
+                        "site": doc.get("site"), "url": doc.get("url"), "slug": slugs.get(doc["_id"])})
+    return out
+
+
 @app.get("/models")
 def model_list(request: Request, q: str = "", bucket: str = ""):
-    """中转模型比价：按 国模/ChatGPT/Claude/Gemini/Grok/图片/视频 归桶，变体合并为家族卡片。"""
-    from .models_tax import group_models, family_of, BUCKET_LABEL, BUCKET_ORDER
-    rx = re.compile(q, re.I) if q else None
-    slugs = {t["_id"]: t.get("slug") for t in store.db().targets.find({"type": "relay"}, {"slug": 1})}
-    flat = []
-    for doc in store.db().relay_prices.find({}, {"site": 1, "url": 1, "models": 1}):
-        for m in doc.get("models") or []:
-            name = m.get("model") or ""; price = m.get("price") or 0
-            if price <= 0: continue
-            if rx and not rx.search(name): continue
-            b, fam = family_of(name)
-            if bucket and b != bucket: continue
-            flat.append({"model": name, "family": fam, "bucket": b, "price": price, "unit": m.get("unit"),
-                         "group_ratio": m.get("group_ratio"), "model_ratio": m.get("model_ratio"),
-                         "model_price": m.get("model_price"), "quota_type": m.get("quota_type"),
-                         "site": doc.get("site"), "url": doc.get("url"), "slug": slugs.get(doc["_id"])})
+    """中转模型比价：按 国模/ChatGPT/Claude/Gemini/Grok/图片/视频 归桶，变体合并为家族卡片；价格统一 ¥ 估算。"""
+    from .models_tax import group_models, BUCKET_LABEL, BUCKET_ORDER, ASSUME
+    rx = re.compile(re.escape(q), re.I) if q else None
+    flat = _relay_rows(lambda n, b, f: (not rx or rx.search(n) or rx.search(f)) and (not bucket or b == bucket))
     groups = group_models(flat)
-    seo = {"title": "中转模型比价（国模 / GPT / Claude / 生图）· mooo.si",
-           "description": f"按家族合并后的中转模型价：{sum(g['n_families'] for g in groups)} 个家族，{len(flat)} 条报价。",
+    seo = {"title": "中转模型比价（国模 / GPT / Claude / 生图 / 视频）· mooo.si",
+           "description": f"按家族合并后的中转模型价（统一换算人民币）：{sum(g['n_families'] for g in groups)} 个家族，{len(flat)} 条报价。",
            "canonical": f"{config.SITE_URL}/models"}
     return templates.TemplateResponse(request, "models.html", {
         "groups": groups, "q": q, "bucket": bucket, "buckets": [(b, BUCKET_LABEL[b]) for b in BUCKET_ORDER if b != "other"],
-        "total_flat": len(flat), "seo": seo})
+        "total_flat": len(flat), "assume": ASSUME, "seo": seo})
 
 
 @app.get("/models/{model_name:path}")
 def model_detail(request: Request, model_name: str):
+    """既支持家族名（/models/nano-banana-2.1）也支持原始模型名。"""
     name = unquote(model_name)
-    offers = []
-    for doc in store.db().relay_prices.find({"models.model": name}, {"site": 1, "url": 1, "models": 1}):
-        for m in doc.get("models") or []:
-            if m.get("model") != name or not m.get("price"): continue
-            t = store.db().targets.find_one({"_id": doc["_id"]}, {"slug": 1, "type": 1}) or {}
-            offers.append({"site": doc.get("site"), "url": doc.get("url"), "slug": t.get("slug"), "type": t.get("type"),
-                           **{k: m.get(k) for k in ("price", "unit", "group_ratio", "model_ratio", "model_price",
-                                                     "completion_ratio", "quota_type", "is_image", "groups")}})
-    offers.sort(key=lambda x: x["price"])
+    offers = _relay_rows(lambda n, b, f: f == name or n == name)
     if not offers: raise HTTPException(404)
+    offers.sort(key=lambda x: (x["suspect"], x["cny"] or 0))
+    is_family = any(o["family"] == name and o["model"] != name for o in offers)
     seo = {"title": f"{name} 中转价格对比 · mooo.si",
-           "description": f"{name} 在 {len(offers)} 家中转的有效价，最低 ${offers[0]['price']}/{offers[0]['unit']}。",
+           "description": f"{name} 在 {len({o['site'] for o in offers})} 家中转的有效价，最低约 ¥{offers[0]['cny']}/{offers[0]['unit']}。",
            "canonical": f"{config.SITE_URL}/models/{quote(name)}"}
-    return templates.TemplateResponse(request, "model_detail.html", {"model": name, "offers": offers, "seo": seo})
+    return templates.TemplateResponse(request, "model_detail.html", {"model": name, "offers": offers, "is_family": is_family, "seo": seo})
 
 @app.get("/robots.txt", response_class=PlainTextResponse)
 def robots():

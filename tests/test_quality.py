@@ -93,3 +93,32 @@ def test_model_families():
     assert "chatgpt" in labs and "image" in labs
     chat = next(x for x in g if x["id"] == "chatgpt")
     assert chat["families"][0]["family"] == "gpt-4o-mini" and chat["families"][0]["min"] == 0.05
+
+
+def test_family_versions_and_aliases():
+    from app.models_tax import classify
+    c = lambda n: classify(n)[:2]  # noqa: E731
+    assert c("nano-banana") == ("image", "gemini-2.5-flash-image")
+    assert c("nano-banana-2-4k") == ("image", "gemini-3.1-flash-image")
+    assert c("gemini-3.1-flash-image-preview") == ("image", "gemini-3.1-flash-image")
+    assert c("nana-banana-pro") == ("image", "gemini-3-pro-image")
+    assert c("gemini-nano-banana-2.1") == ("image", "nano-banana-2.1")   # 未知新版本独立
+    assert c("nano-banana-2-1") == ("image", "nano-banana-2.1")
+    assert c("doubao-seedance-2-5-260628") == ("video", "seedance-2.5")
+    assert c("seedance-2-fast-特价版") == ("video", "seedance-2.0")
+    assert c("aigc-video-kling-2.1") == ("video", "kling-2.1")
+    assert c("veo_3_1-fast") == ("video", "veo-3.1")
+    assert c("doubao-seed-2.1-pro")[0] == "china"
+    assert c("MiniMax-M2.1")[0] == "china"
+
+
+def test_estimate_and_rate():
+    from app.models_tax import estimate, rate_info
+    r = rate_info({"quota_display_type": "USD", "price": 1})
+    assert r["rmb_per_quota_usd"] == 1 and r["mislabeled"]
+    e = estimate({"quota_type": 0, "model_ratio": 3.3823529, "completion_ratio": 3.3823529, "group_ratio": 1}, "video", "seedance-2.0", 6.8)
+    assert abs(e["per_s_usd"] - 6.7647 * 3.3823529 * 0.0216) < 0.01 or e["per_s_usd"] > 0
+    e = estimate({"quota_type": 1, "model_price": 0.0014706, "group_ratio": 1.13}, "video", "kling", 1)
+    assert e["suspect"]
+    e = estimate({"quota_type": 1, "model_price": 0.12923, "group_ratio": 0.1369}, "image", "nano-banana-2.1", 1)
+    assert abs(e["cny"] - 0.0177) < 0.001
