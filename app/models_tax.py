@@ -91,6 +91,7 @@ FAMILY_RULES = [
     (re.compile(r"(?:aigc-video-)?kling(?:-video)?-?(\d(?:\.\d)?)?(.*)$"), "video", _simple("kling")),
     (re.compile(r"sora-?(\d)?(.*)$"), "video", _simple("sora")),
     (re.compile(r"(?:minimax-)?hailuo-?(\d+)?(.*)$"), "video", _simple("hailuo")),
+    (re.compile(r"wan-?(\d(?:[.-]\d)?)-image(.*)$"), "image", _simple("wan-image")),
     (re.compile(r"wan-?(\d(?:\.\d)?)(.*)$"), "video", _simple("wan")),
     (re.compile(r"grok-imagine-video(?:-(\d+(?:\.\d+)?))?(.*)$"), "video", _simple("grok-imagine-video")),
     (re.compile(r"(vidu|runway|luma|pixverse|jimeng-video)-?(\d(?:\.\d)?)?(.*)$"), "video",
@@ -187,12 +188,12 @@ def estimate(row: dict, bucket: str, fam: str, rmb_per_usd: float | None) -> dic
         out["billing"] = "按次"
         if bucket == "image":
             out.update(usd=call, unit="张", note="按次计费：model_price × 分组倍率 = 每次调用（≈1 张图）")
-            if call < 0.0005: out.update(suspect=True, note=out["note"] + "；单价异常低，站点可能按积分/秒另计")
+            if call < 0.002: out.update(suspect=True, note=out["note"] + "；单价异常低，站点可能按积分/秒另计")
         elif bucket == "video":
             secs = _clip_s(fam)
             out.update(usd=call, unit=f"条(≈{secs}s)", per_s_usd=call / secs, clip5_usd=call / secs * 5, clip10_usd=call / secs * 10,
                        note=f"按次计费：假设每次生成 {secs}s 视频")
-            if call < 0.005: out.update(suspect=True, note="按次单价异常低（如 $0.0015/次），站点实际多按秒/积分计费，仅供参考")
+            if call < 0.05: out.update(suspect=True, note="按次单价异常低（<$0.05/条），站点实际多按秒/积分计费，仅供参考")
         else:
             out.update(usd=call, unit="次")
     else:
@@ -213,6 +214,8 @@ def estimate(row: dict, bucket: str, fam: str, rmb_per_usd: float | None) -> dic
             out[k] = round(out[k], 6)
             out[k.replace("usd", "cny")] = round(out[k] * rate, 4)
     out["rate"] = rate
+    if rmb_per_usd is not None and rmb_per_usd < 0.3:
+        out["suspect"] = True; out["note"] += f"；充值单价 ¥{rmb_per_usd}/$ 异常低，需核对"
     return out
 
 
