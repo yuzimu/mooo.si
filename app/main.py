@@ -50,12 +50,26 @@ def _params(q, category, source, in_stock, min_price, max_price):
                 min_price=min_price, max_price=max_price)
 
 @app.get("/api/search")
-def api_search(q: str = "", category: str = "", source: str = "", in_stock: bool = False,
-               min_price: float | None = None, max_price: float | None = None, sort: str = "price",
-               limit: int = Query(50, le=500), offset: int = Query(0, ge=0)):
-    items, total = store.search(limit=limit, skip=offset, sort=sort,
-                                **_params(q, category, source, in_stock, min_price, max_price))
-    return {"total": total, "offset": offset, "items": [store.to_json(o) for o in items]}
+def api_search(q: str = "", type: str | None = None, page: int = Query(1, ge=1), per: int = Query(20, le=100),
+               category: str = "", source: str = "", in_stock: bool = False, min_price: float | None = None,
+               max_price: float | None = None, sort: str = "price", limit: int = Query(50, le=500), offset: int = Query(0, ge=0)):
+    """统一搜索（分组）：offers / shops / relays / models / tg / sources。type 指定单组分页。
+    兼容：顶层 total/items 仍为卡网商品（支持 category/source/in_stock/价格/排序过滤）。"""
+    from . import usearch
+    legacy_items, legacy_total = store.search(limit=limit, skip=offset, sort=sort,
+                                              **_params(q, category, source, in_stock, min_price, max_price))
+    if type and type not in dict(usearch.GROUPS): raise HTTPException(400, "unknown type")
+    res = usearch.search(q, group=type, page=page, per=per)
+    def ser(g, x):
+        if g == "offers": return store.to_json(x)
+        if g in usearch.TARGET_TYPE:
+            return {k: x.get(k) for k in ("_id", "url", "name", "type", "platform", "status", "mentions", "slug")}
+        if g == "models":
+            return {"family": x["family"], "bucket": x["bucket"], "min_cny": x["min"], "unit": x["unit"], "sites": x["sites"]}
+        return x
+    return {"q": q, "total": legacy_total, "offset": offset, "items": [store.to_json(o) for o in legacy_items],
+            "groups": {g: {"label": v["label"], "total": v["total"], "page": v["page"], "pages": v["pages"],
+                                   "items": [ser(g, x) for x in v["items"]]} for g, v in res.items()}}
 
 @app.get("/api/offers")
 def api_offers(q: str | None = None, category: str | None = None, in_stock: bool = False,
@@ -125,10 +139,17 @@ def seo_index(request, category, q, section, ctx):
             "noindex": bool(q or ctx["source"] or ctx["in_stock"] or ctx["page"] > 1)}
 
 @app.get("/search")
-def search_page(request: Request, q: str = "", category: str = "", source: str = "",
-                in_stock: bool = False, sort: str = "featured", page: int = 1, partial: bool = False):
-    # 必须透传 page/partial：否则"加载更多"拿到整页 HTML 插进 #groups，页面重复、移动端 viewport 错乱
-    return index(request, q=q, category=category, source=source, in_stock=in_stock, sort=sort, page=page, partial=partial)
+def search_page(request: Request, q: str = "", t: str = "", page: int = 1):
+    """统一搜索页：按类型分组（标签页 + 计数），各组独立分页；卡网商品与中转分组隔离展示。"""
+    from . import usearch
+    group = t if t in dict(usearch.GROUPS) else None
+    res = usearch.search(q, group=group, page=page)
+    total = sum(v["total"] for v in res.values())
+    seo = {"title": f"搜索「{q}」· mooo.si" if q else "搜索 · mooo.si",
+           "description": f"「{q}」在卡网商品、店铺、中转站、模型价格、TG 中共 {total} 条结果。", "noindex": True,
+           "canonical": f"{config.SITE_URL}/search"}
+    return templates.TemplateResponse(request, "search.html", {"q": q, "t": group, "res": res, "groups": usearch.GROUPS,
+                                                               "total": total, "page": page, "seo": seo})
 
 @app.get("/about")
 def about(request: Request):

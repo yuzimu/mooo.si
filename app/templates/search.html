@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% set ICON = {'offers':'shopping-bag','shops':'store','relays':'network','models':'cpu','tg':'send','sources':'radar'} %}
+
+{% block main %}
+<section class="mx-auto max-w-6xl px-4 pt-8 sm:px-6">
+  <form action="/search" class="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white/80 p-1.5 shadow-sm dark:border-white/10 dark:bg-ink-850/80">
+    <i data-lucide="search" class="ml-2 h-4 w-4 shrink-0 text-slate-400"></i>
+    <input name="q" value="{{ q }}" placeholder="搜商品、店铺、中转、模型、TG…" class="min-w-0 flex-1 bg-transparent py-2 text-base outline-none">
+    {% if t %}<input type="hidden" name="t" value="{{ t }}">{% endif %}
+    <button class="shrink-0 rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white">搜索</button>
+  </form>
+  {% if q %}<p class="mt-3 text-sm text-slate-500">「<span class="font-semibold text-slate-800 dark:text-slate-200">{{ q }}</span>」共 {{ total }} 条结果</p>{% endif %}
+
+  <nav class="sticky top-14 z-20 -mx-4 mt-4 overflow-x-auto border-b border-slate-200 bg-white/90 px-4 backdrop-blur dark:border-white/10 dark:bg-ink-900/90 sm:mx-0 sm:px-0">
+    <div class="flex w-max gap-1">
+      <a href="/search?q={{ q | urlencode }}" class="whitespace-nowrap border-b-2 px-3 py-2.5 text-sm {{ 'border-violet-500 font-semibold text-violet-600' if not t else 'border-transparent text-slate-500' }}">全部 <span class="font-mono text-xs">{{ total }}</span></a>
+      {% for g, lab in groups %}
+      <a href="/search?q={{ q | urlencode }}&t={{ g }}" class="whitespace-nowrap border-b-2 px-3 py-2.5 text-sm {{ 'border-violet-500 font-semibold text-violet-600' if t == g else 'border-transparent text-slate-500' }}">{{ lab }} <span class="font-mono text-xs">{{ res[g].total }}</span></a>
+      {% endfor %}
+    </div>
+  </nav>
+
+  {% for g, lab in groups if (not t or t == g) %}{% set r = res[g] %}
+  {% if r.total or t %}
+  <section class="mt-6" id="g-{{ g }}">
+    <h2 class="flex items-center gap-2 text-lg font-bold text-slate-900 dark:text-white"><i data-lucide="{{ ICON[g] }}" class="h-5 w-5 text-violet-500"></i>{{ lab }}
+      <span class="text-sm font-normal text-slate-500">{{ r.total }}</span>
+      {% if g == 'offers' %}<span class="rounded bg-slate-100 px-1.5 text-[11px] font-normal text-slate-500 dark:bg-white/5">卡网·不含中转</span>{% endif %}
+      {% if g == 'models' %}<span class="rounded bg-slate-100 px-1.5 text-[11px] font-normal text-slate-500 dark:bg-white/5">中转·¥ 估算</span>{% endif %}</h2>
+    <ul class="mt-3 divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-200 bg-white/70 dark:divide-white/[.05] dark:border-white/[.07] dark:bg-white/[.02]">
+    {% for x in r['items'] %}
+      {% if g == 'offers' %}
+      <li class="flex items-center justify-between gap-3 px-4 py-3">
+        <div class="min-w-0"><a href="{{ x.url | go }}" data-go="{{ x.url }}" rel="nofollow noopener" target="_blank" class="line-clamp-2 text-sm font-medium text-slate-800 hover:underline dark:text-slate-100">{{ x.title }}</a>
+          <p class="mt-0.5 truncate text-xs text-slate-500">{{ cat_meta(x.category)[0] }} · {{ x.seller or x.source }}{% if x.stock is not none %} · 库存 {{ x.stock }}{% endif %}</p></div>
+        <div class="shrink-0 text-right font-mono text-base font-bold text-violet-600 dark:text-violet-400">{{ x.price | money(x.currency) }}</div>
+      </li>
+      {% elif g in ('shops', 'relays', 'tg') %}
+      <li class="flex items-center justify-between gap-3 px-4 py-3">
+        <div class="min-w-0"><a href="{{ x.slug | target_path(x.type) if x.slug else (x.url | go) }}" class="truncate text-sm font-medium text-slate-800 hover:underline dark:text-slate-100">{{ x.name or x._id.split(':',1)[-1] }}</a>
+          <p class="mt-0.5 truncate font-mono text-xs text-slate-500">{{ x.url }}</p></div>
+        <div class="shrink-0 text-right text-xs text-slate-500">{{ x.platform or '未知平台' }}<br>{{ x.status }} · 提及 {{ x.mentions or 0 }}</div>
+      </li>
+      {% elif g == 'models' %}
+      <li class="flex items-center justify-between gap-3 px-4 py-3">
+        <div class="min-w-0"><a href="/models/{{ x.family | urlencode }}" class="truncate font-mono text-sm font-semibold text-slate-800 hover:underline dark:text-slate-100">{{ x.family }}</a>
+          <p class="mt-0.5 text-xs text-slate-500">{{ x.bucket }} · {{ x.variant_n }} 个变体 · {{ x.sites }} 家中转{% if x.alias %} · 别名 {{ x.alias }}{% endif %}</p></div>
+        <div class="shrink-0 text-right"><div class="font-mono font-bold text-violet-600 dark:text-violet-400">¥{{ x.min }}</div><div class="text-[11px] text-slate-500">/ {{ x.unit }}</div></div>
+      </li>
+      {% else %}
+      <li class="flex items-center justify-between gap-3 px-4 py-3">
+        <div class="min-w-0 text-sm font-medium text-slate-800 dark:text-slate-100">{{ x.label }} <span class="font-mono text-xs text-slate-500">{{ x.id }}</span></div>
+        <div class="shrink-0 text-xs text-slate-500">{{ x.kind }}{% if x.offers %} · {{ x.offers }} 条{% endif %}{% if not x.enabled %} · 未启用{% endif %}</div>
+      </li>
+      {% endif %}
+    {% else %}
+      <li class="px-4 py-8 text-center text-sm text-slate-500">没有匹配结果</li>
+    {% endfor %}
+    </ul>
+    {% if not t and r.total > r['items']|length %}
+      <a href="/search?q={{ q | urlencode }}&t={{ g }}" class="mt-2 inline-block text-sm font-medium text-violet-600 hover:underline dark:text-violet-400">查看全部 {{ r.total }} 条{{ lab }} →</a>
+    {% elif t and r.pages > 1 %}
+      <div class="mt-4 flex items-center justify-center gap-2 text-sm">
+        {% if page > 1 %}<a href="/search?q={{ q | urlencode }}&t={{ g }}&page={{ page - 1 }}" class="rounded-lg border px-3 py-1.5 dark:border-white/10">上一页</a>{% endif %}
+        <span class="text-slate-500">{{ page }} / {{ r.pages }}</span>
+        {% if page < r.pages %}<a href="/search?q={{ q | urlencode }}&t={{ g }}&page={{ page + 1 }}" class="rounded-lg border px-3 py-1.5 dark:border-white/10">下一页</a>{% endif %}
+      </div>
+    {% endif %}
+  </section>
+  {% endif %}
+  {% endfor %}
+  {% if q and not total %}<p class="mt-16 text-center text-slate-500">没有找到「{{ q }}」，换个关键词试试。</p>{% endif %}
+</section>
+{% endblock %}

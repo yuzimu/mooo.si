@@ -154,6 +154,10 @@ def cycle():
     """每 CRAWL_EVERY_HOURS 小时一轮。先确认代理可用（fail closed），统计本轮流量。"""
     meter.reset(); t0 = time.time()
     try:
+        from . import usearch; usearch.index_targets()
+    except Exception:  # noqa: BLE001
+        pass
+    try:
         egress = check_proxy()
     except Exception as e:  # noqa: BLE001
         store.db().pipeline_runs.insert_one({"stage": "cycle", "at": store.now(), "error": str(e)[:500]})

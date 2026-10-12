@@ -33,6 +33,15 @@ def test_seo_and_go():
 
 def test_load_more_returns_fragment_on_all_routes():
     client = TestClient(app)
-    for path in ["/", "/search?q=gemini", "/c/account"]:
+    for path in ["/", "/c/account"]:
         r = client.get(path + ("&" if "?" in path else "?") + "page=2&partial=1")
         assert r.status_code == 200 and "X-Has-More" in r.headers and "<html" not in r.text, path
+
+
+def test_unified_search_groups():
+    client = TestClient(app)
+    r = client.get("/api/search", params={"q": "gemini"}).json()
+    assert set(r["groups"]) == {"offers", "shops", "relays", "models", "tg", "sources"}
+    assert all(i.get("source") != "relay" for i in r["groups"]["offers"]["items"])
+    assert client.get("/search?q=gemini").status_code == 200
+    assert client.get("/search?q=gemini&t=shops&page=2").status_code == 200
