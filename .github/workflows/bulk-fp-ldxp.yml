@@ -1,0 +1,84 @@
+name: bulk-fp-ldxp
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "最多处理多少个（0=全部）"
+        default: "0"
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cat > /tmp/bulk_fp_ldxp.py <<'PYEOF'
+"""一次性批量指纹：对 status=new 的 ldxp 目标跑 ShopApi 探针。
+
+用法（Oracle 上容器内）:
+    python /tmp/bulk_fp_ldxp.py [--limit N]
+
+只处理 platform=ldxp 且 status=new 的目标，调用 app.platforms.ldxp.probe，
+按结果更新 status/fp/fp_at。单目标单个 POST，带 0.3s 间隔。
+"""
+import os
+import sys
+import time
+
+sys.path.insert(0, "/app")
+
+from pymongo import MongoClient  # noqa: E402
+
+import app.platforms.ldxp as ldxp_mod  # noqa: E402
+from app import store  # noqa: E402
+from app.net import client  # noqa: E402
+
+
+def main():
+    limit = int(sys.argv[1].split("=")[1]) if len(sys.argv) > 1 and "=" in sys.argv[1] else 0
+    db = MongoClient(os.environ["MONGO_URL"])[os.environ.get("MONGO_DB", "mooo")]
+    cur = db.targets.find({"platform": "ldxp", "status": "new"}, {"_id": 1})
+    ids = [d["_id"] for d in cur]
+    if limit:
+        ids = ids[:limit]
+    print(f"targets: {len(ids)}", flush=True)
+    ok = waf = down = err = 0
+    with client() as c:
+        for i, tid in enumerate(ids):
+            token = tid.split(":", 1)[1] if ":" in tid else ""
+            try:
+                good, note = ldxp_mod.probe(c, token)
+            except Exception as e:  # noqa: BLE001
+                good, note = False, f"probe异常: {type(e).__name__}"
+            if good:
+                st = "ok"
+                ok += 1
+            elif "风控" in note:
+                st = "blocked_captcha"
+                waf += 1
+            else:
+                st = "down"
+                down += 1
+            try:
+                db.targets.update_one(
+                    {"_id": tid},
+                    {"$set": {"status": st, "fp": {"platform": "ldxp", "status": st, "name": note[:80] if good else None,
+                                                   "note": note[:200]},
+                              "fp_at": store.now(), "platform": "ldxp"}})
+            except Exception as e:  # noqa: BLE001
+                err += 1
+                print(f"db err {tid}: {e}", flush=True)
+            if (i + 1) % 500 == 0:
+                print(f"progress {i + 1}/{len(ids)} ok={ok} waf={waf} down={down} err={err}", flush=True)
+            time.sleep(0.3)
+    print(f"done ok={ok} waf={waf} down={down} err={err}", flush=True)
+
+
+if __name__ == "__main__":
+    main()
+PYEOF
+            sudo docker cp /tmp/bulk_fp_ldxp.py mooo-si:/tmp/bulk_fp_ldxp.py
+            sudo docker exec mooo-si python /tmp/bulk_fp_ldxp.py --limit=${{ inputs.limit }}
