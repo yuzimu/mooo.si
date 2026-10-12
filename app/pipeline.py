@@ -1,5 +1,5 @@
 """每日管线：聚合源抓取 → 阶段一发现 → 阶段二定向抓取 → 跨源去重。"""
-import logging, math, random, re, time
+import logging, math, os, random, re, time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -67,6 +67,9 @@ def _crawl_domain(items):
     out = []
     with client(headers={"User-Agent": config.BROWSER_UA}) as c:
         for t in items:
+            heartbeat()
+            if time.time() > _DEADLINE[0]:
+                log.info("cycle time budget reached, defer %s", t["_id"]); break   # 时间预算用完：顺延，避免与下一轮重叠
             if meter.bytes > config.CYCLE_BYTE_BUDGET_MB * 1e6:
                 log.info("byte budget reached, defer %s", t["_id"]); break   # 流量预算用完：剩余目标顺延到下一轮
             health = {"at": store.now()}
@@ -103,12 +106,35 @@ def _crawl_domain(items):
             out.append((t["_id"], health)); time.sleep(config.DOMAIN_DELAY + random.random())
     return out
 
-def run_targeted(limit=None):
+_DEADLINE = [float("inf")]
+
+
+def _ldxp_canary(c, col):
+    """抽一个 ldxp 店铺探 ShopApi：返回 JSON 才放行全部 ldxp 目标；若被 ESA/WAF 拦截则整批跳过（不绕过验证码）。"""
+    from .platforms.ldxp import probe
+    t = col.find_one({"platform": "ldxp", "_id": {"$regex": "^ldxp:"}}, {"_id": 1})
+    if not t: return True
+    ok, note = probe(c, t["_id"].split(":", 1)[1])
+    store.db().pipeline_runs.insert_one({"stage": "ldxp_canary", "at": store.now(), "ok": ok, "note": note[:200]})
+    if not ok and ("风控" in note or "WAF" in note):
+        col.update_many({"platform": "ldxp", "status": {"$nin": ["item_gone", "ignored"]}},
+                        {"$set": {"status": "blocked_captcha", "fp_at": store.now(),
+                                  "fp": {"platform": "ldxp", "status": "blocked_captcha", "note": "ShopApi 也被阿里云 ESA/WAF 拦截，跳过"}}})
+        return False
+    return True
+
+
+def run_targeted(limit=None, max_minutes=None):
     col = store.db().targets
+    mm = max_minutes or config.CYCLE_MAX_MINUTES
+    _DEADLINE[0] = time.time() + 60 * mm if mm else float("inf")   # 默认不设时间上限：跑完为止（锁保证不重叠）
     with client(headers={"User-Agent": config.BROWSER_UA}) as c:
         _merge_catfk_items(c)
-    cand = list(col.find({"type": {"$in": ["card_shop", "relay", "unknown"]}, "pending_item": {"$exists": False},
-                          "status": {"$nin": ["item_gone", "ignored"]}}))
+        ldxp_ok = _ldxp_canary(c, col)
+    f = {"type": {"$in": ["card_shop", "relay", "unknown"]}, "pending_item": {"$exists": False},
+         "status": {"$nin": ["item_gone", "ignored"]}}
+    if not ldxp_ok: f["platform"] = {"$ne": "ldxp"}
+    cand = list(col.find(f))
     for t in cand: t["_prio"] = priority(t)
     cand.sort(key=lambda t: -t["_prio"])
     # 最近 TARGET_MIN_INTERVAL_H 小时内成功抓过的目标本轮跳过，把配额让给其它目标（错峰）
@@ -150,8 +176,38 @@ def dedupe():
         else: seen.add(d["dedupe_key"])
     return n
 
+LEASE_MIN = 20   # 租约 20 分钟，运行中每处理一个目标续租；进程崩溃后 20 分钟视为僵死可被接管
+_OWNER = f"{os.getpid()}-{random.randrange(1 << 30)}"
+
+
+def _lock(name, minutes=LEASE_MIN):
+    """Mongo 租约锁：已有未过期租约 → 拒绝（上一轮未完成就不开始下一轮）。"""
+    now = store.now(); col = store.db().locks
+    try:
+        col.insert_one({"_id": name, "until": now + timedelta(minutes=minutes), "at": now, "owner": _OWNER})
+        return True
+    except Exception:  # noqa: BLE001 已存在
+        r = col.update_one({"_id": name, "until": {"$lt": now}},
+                           {"$set": {"until": now + timedelta(minutes=minutes), "at": now, "owner": _OWNER}})
+        return r.modified_count == 1
+
+
+def heartbeat(name="cycle"):
+    store.db().locks.update_one({"_id": name, "owner": _OWNER}, {"$set": {"until": store.now() + timedelta(minutes=LEASE_MIN), "beat": store.now()}})
+
+
 def cycle():
-    """每 CRAWL_EVERY_HOURS 小时一轮。先确认代理可用（fail closed），统计本轮流量。"""
+    """每 CRAWL_EVERY_HOURS 小时一轮；加锁防重叠，时间预算内未完成的目标下一轮续跑。"""
+    if not _lock("cycle"):
+        log.warning("previous cycle still running, skip"); return {"skipped": "locked"}
+    try:
+        return _cycle()
+    finally:
+        store.db().pipeline_runs.insert_one({"stage": "cycle_done", "at": store.now()})
+        store.db().locks.delete_one({"_id": "cycle", "owner": _OWNER})
+
+
+def _cycle():
     meter.reset(); t0 = time.time()
     try:
         from . import usearch; usearch.index_targets()

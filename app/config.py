@@ -43,3 +43,6 @@ FAIL_RETRY_H = float(os.getenv("FAIL_RETRY_H", "12"))   # 失败（非验证码�
 
 LINK_PROBE_TTL_H = float(os.getenv("LINK_PROBE_TTL_H", "24"))
 LINK_PROBE_PER_CYCLE = int(os.getenv("LINK_PROBE_PER_CYCLE", "60"))
+
+# 每轮定向抓取的时间预算（分钟），需小于 CRAWL_EVERY_HOURS，未完成目标下一轮续跑
+CYCLE_MAX_MINUTES = int(os.getenv("CYCLE_MAX_MINUTES", "0"))  # 0 = 不限，跑完为止
