@@ -8,7 +8,17 @@ CF_CHALLENGE = re.compile(r"cf-chl|challenge-platform|Just a moment\.\.\.", re.I
 def fingerprint(c: httpx.Client, t: dict) -> dict:
     """返回 {"platform", "status", "name", "note"}；status: ok / blocked_captcha / blocked_cf / down / unknown"""
     if t.get("platform") == "ldxp":
-        return {"platform": "ldxp", "status": "blocked_captcha", "note": "链动小铺/微店云铺 全站阿里云 ESA 滑块，跳过（数据经 kawanghub/aigood 间接获取）"}
+        # ldxp 店铺 ShopApi 公开可直采（无需登录），先轻探针验证再决定
+        from .ldxp import probe as _ldxp_probe
+        token = t.get("_id", "").split(":", 1)[1] if ":" in t.get("_id", "") else ""
+        if not token:
+            return {"platform": "ldxp", "status": "unknown", "note": "缺少店铺 token"}
+        ok, note = _ldxp_probe(c, token)
+        if ok:
+            return {"platform": "ldxp", "status": "ok", "name": note}
+        if "风控" in note:
+            return {"platform": "ldxp", "status": "blocked_captcha", "note": note}
+        return {"platform": "ldxp", "status": "down", "note": note}
     if t.get("platform") == "catfk": return {"platform": "catfk", "status": "ok"}
     if t["type"] == "tg": return {"platform": "telegram", "status": "ok" if t.get("tg_public") else "private"}
     base = t["url"].rstrip("/")
