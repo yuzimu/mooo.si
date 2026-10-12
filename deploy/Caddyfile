@@ -1,0 +1,4 @@
+# 若不用 1Panel/OpenResty，可改用 Caddy（自动 HTTPS）
+mooo.si {
+    reverse_proxy 127.0.0.1:8790
+}

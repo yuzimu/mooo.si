@@ -16,13 +16,21 @@
 ## 统一 Schema（crawler/schema.py: Offer）
 source, product, category, title, price, currency, seller, url, in_stock, stock, captured_at, tags
 
-## 技术栈
-- 爬虫：Python 3.12 标准库（后续按需加 httpx / selectolax），每源一个 Adapter（`fetch() -> Iterable[Offer]`）
-- 前端：纯静态 HTML+JS，读取 `data/offers.json`，支持搜索/分类/有货筛选/价格排序
-- 后续：历史价格存 SQLite/JSON 快照，价格走势图
+## 技术栈（v0.2：服务端站点，不再使用 GitHub Pages）
+- Web：FastAPI + Jinja2 服务端渲染，`/api/offers` JSON 接口，`/healthz`
+- 存储：SQLAlchemy 2，默认 SQLite（`/data/mooo.db`），可切到服务器已有的 1Panel Postgres
+- 调度：APScheduler 进程内定时任务（默认 30 分钟），每次运行记录 `crawl_runs`
+- 适配器层：`app/adapters/*`，每源 `fetch() -> Iterable[Offer]`，声明 `use_proxy` / `use_browser`
+- 网络层 `app/net.py`：代理池（PROXY_POOL_URL / PROXY_LIST 轮换）+ 指纹浏览器 CDP 钩子（BROWSER_CDP_URL，Playwright connect_over_cdp）
+- 质量：ruff + pytest；Docker + docker-compose
 
 ## 部署
-GitHub Actions 每 30 分钟抓取 → 发布到 GitHub Pages，`site/CNAME`=mooo.si。域名 DNS：mooo.si 加 A 记录指向 GitHub Pages IP（185.199.108–111.153）或 CNAME 到 `<user>.github.io`。需抓取受限源时再加一台小 VPS 跑爬虫推送数据。
+目标：用户的 Oracle 服务器（140.245.91.120，Oracle Linux 9.8，aarch64，4 核 / 22G，Docker 29 + Compose v5）。
+- 80/443 由 1Panel 的 OpenResty 占用（已有 site-mooo-* 等站点），因此**不另起 Caddy/nginx**：容器只绑 `127.0.0.1:8790`，在 1Panel 新建 mooo.si 反代站点并申请证书。
+- 已占用的本地端口：2260, 5432, 6080, 6379, 8000, 8088, 8317, 8788, 38001-38005, 18080（1Panel）——8790 空闲。
+- 镜像由 GitHub Actions 构建 arm64/amd64 推送 GHCR，SSH 到服务器 `/opt/mooo-si` 执行 `docker compose pull && up -d`。
+- 服务器上已有可能可复用的服务（未改动、未深查）：`x2api-resin`（ghcr.io/resinat/resin，疑似代理池，127.0.0.1:2260）、`x2api-browser`（127.0.0.1:6080，疑似浏览器/noVNC）。确认后可填入 PROXY_POOL_URL / BROWSER_CDP_URL。
+- 备选：无 1Panel 时用 `deploy/Caddyfile` 自动 HTTPS。
 
 ## 合规
-遵守 robots 与站点公开 feed 政策；不绕验证码；低频请求；页面声明仅供参考。
+遵守 robots 与站点公开 feed 政策；不绕验证码（ESA 滑块站点跳过）；低频请求；页面声明仅供参考。

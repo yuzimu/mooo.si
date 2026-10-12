@@ -1,0 +1,9 @@
+services:
+  web:
+    image: ghcr.io/yuzimu/mooo.si:latest
+    build: .
+    container_name: mooo-si
+    restart: unless-stopped
+    env_file: [.env]
+    ports: ["127.0.0.1:8790:8000"]   # 只绑定本机，由 1Panel OpenResty 反代 mooo.si
+    volumes: ["./data:/data"]

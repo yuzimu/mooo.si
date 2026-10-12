@@ -1,5 +1,8 @@
 __pycache__/
 *.pyc
 .env
-site/data/offers.json
+data/
 *.db
+.venv/
+.ruff_cache/
+.pytest_cache/

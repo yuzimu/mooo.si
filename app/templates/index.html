@@ -1,0 +1,12 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>mooo.si · AI 卡网 / 中转 / 工具 比价</title>
+<style>body{font-family:system-ui;margin:2rem auto;max-width:1150px;padding:0 1rem}table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #ddd;padding:6px;font-size:14px;text-align:left}input,select,button{padding:6px;margin-right:6px}small{color:#888}</style></head>
+<body><h1>mooo.si</h1>
+<p>聚合 AI 卡网、API 中转与 AI 工具报价，仅供参考，购买前请向原始来源核实。共 {{ total }} 条。
+<small>{% for r in runs %}{{ r.source }} {{ r.started_at.strftime('%m-%d %H:%M') }}UTC {{ r.count }}{% if r.error %} ❌{% endif %}；{% endfor %}</small></p>
+<form><input name="q" value="{{ q }}" placeholder="搜索…">
+<select name="category"><option value="">全部分类</option>{% for c in cats %}<option {% if c==category %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
+<label><input type="checkbox" name="in_stock" value="true" {% if in_stock %}checked{% endif %}>仅有货</label><button>筛选</button></form>
+<table><thead><tr><th>商品</th><th>标题</th><th>价格</th><th>卖家</th><th>来源</th></tr></thead><tbody>
+{% for o in offers %}<tr><td>{{ o.product }}</td><td>{% if o.url %}<a href="{{ o.url }}" rel="nofollow noopener" target="_blank">{{ o.title }}</a>{% else %}{{ o.title }}{% endif %}</td><td>{{ o.price }} {{ o.currency }}</td><td>{{ o.seller or '' }}</td><td>{{ o.source }}</td></tr>{% endfor %}
+</tbody></table></body></html>
