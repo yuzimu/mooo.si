@@ -195,7 +195,7 @@ def estimate(row: dict, bucket: str, fam: str, rmb_per_usd: float | None) -> dic
                        note=f"按次计费：假设每次生成 {secs}s 视频")
             if call < 0.05: out.update(suspect=True, note="按次单价异常低（<$0.05/条），站点实际多按秒/积分计费，仅供参考")
         else:
-            out.update(usd=call, unit="次")
+            out.update(usd=call, unit="次", note="文本模型按次计费（每次请求），与按 token 计价不可直接比较")
     else:
         inp = mr * 2 * gr; outp = mr * cr * 2 * gr
         out["billing"] = "按量"
@@ -230,7 +230,11 @@ def group_models(rows: list[dict]) -> list[dict]:
     for (b, fam), offers in fams.items():
         offers = [o for o in offers if (o.get("cny") or o.get("price") or 0) > 0]
         if not offers: continue
-        key = lambda x: (x.get("suspect", False), x.get("cny") if x.get("cny") is not None else x.get("price") or 0)  # noqa: E731
+        from collections import Counter as _C
+        pref = _C((o.get("unit") or "").split("(")[0] for o in offers).most_common(1)[0][0]   # 同家族按主流计费单位比较
+        if b not in ("image", "video") and any(o.get("unit") == "1M 输入" for o in offers): pref = "1M 输入"
+        key = lambda x, pref=pref: (x.get("suspect", False), (x.get("unit") or "").split("(")[0] != pref,  # noqa: E731
+                         x.get("cny") if x.get("cny") is not None else x.get("price") or 0)
         offers.sort(key=key)
         variants = defaultdict(list)
         for o in offers: variants[o["model"]].append(o)
