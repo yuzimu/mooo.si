@@ -36,7 +36,7 @@ def test_disabled_by_default():
     assert o[0].category in ("account","claude","topup")
 
 def test_ldxp_shopapi_parse():
-    from app.platforms.ldxp import parse_goods, LdxpWafBlocked
+    from app.platforms.ldxp import parse_goods
     g = {"name": "GPT-4 账号", "price": "29.9", "goods_key": "abc123", "goods_type": "card",
          "status": 1, "extend": {"stock_count": 50, "limit_count": 1},
          "multipleoffers": [{"num": 10, "price": "27.9"}],

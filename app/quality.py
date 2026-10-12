@@ -9,7 +9,7 @@ from .net import client
 JUNK_TITLE = re.compile(
     r"(教程|须知必看|购买须知|售后须知|使用说明|下单前必|请先看|看完再买|温馨提示|公告|通知|"
     r"测试商品|测一测|勿拍|不要拍|仅测试|占位|示例|demo\b|sample\b|"
-    r"充值教程|开通教程|绑定教程|如何使用|怎么用)", re.I)
+    r"充值教程|开通教程|绑定教程|如何使用|怎么用|补差价|差价专用|附加商品|邮费)", re.I)
 JUNK_ZERO = re.compile(r"(免费领取|0元购|零元|面议|联系客服询价)", re.I)
 
 def is_junk(o: dict) -> str | None:
@@ -63,16 +63,46 @@ CAT_RULES = [
      re.compile(r"教程|须知|中转站|按量", re.I)),
 ]
 
+OBFUSCATE = [(re.compile(r"\bgro\s*k\b|\bgro(?=\d|\b)(?!up)", re.I), " grok "), (re.compile(r"\bcaude\b|cl[a@]ude", re.I), "claude"),
+             (re.compile(r"c-odex|c0dex|co-dex", re.I), "codex"), (re.compile(r"g\s*pt|gp-t", re.I), "gpt"),
+             (re.compile(r"\bg\s*(plus|pro)\b", re.I), r"gpt \1")]
+
+def normalize_title(t: str) -> str:
+    """卖家常用的规避写法还原：gro→grok、Caude→claude、C-odex→codex、G Plus→gpt plus。"""
+    for rx, rep in OBFUSCATE: t = rx.sub(rep, t)
+    return t
+
+PRE_RULES = [
+    # 卡网卖的 API 额度/余额/兑换码（与中转模型价隔离）
+    ("api-credit", re.compile(
+        r"api.{0,12}(cdk|额度|余额|兑换码|\d+\s*(刀|\$|美元|usd))|(\d+\s*(刀|美元|usd|\$))\s*(额度|余额|兑换码|卡密)|"
+        r"(额度|余额)(卡密|兑换|补给|卡)|中转站?.{0,6}(赠额|额度|兑换)|算力点|token\s*额度|^\s*\d+\s*(刀|usd|额度)\s*$|"
+        r"(seedance|image\s*2|生图|veo|sora|kling).{0,20}\d+\s*(刀|张|\$)|cny\s*\d+\s*=\s*usd|¥\s*\d+\s*=\s*\$|\(1:1\)兑换码|号池", re.I),
+     re.compile(r"plus|pro\s*\d+x|\d+x\b|成品号|会员|订阅|代充|super\s*grok", re.I)),
+    ("social", re.compile(
+        r"[\U0001F1E6-\U0001F1FF]{2}\s*\+\d{1,4}|tgapi|纸飞机|tg\s*-?\s*\d+\s*月|telegram|facebook|instagram|whatsapp|"
+        r"网易云|黑胶|腾讯视频|爱奇艺|优酷|芒果tv|百度网盘|夸克|华为视频|bilibili|b站大会员|美团|饿了么|qq音乐|酷狗|youtube\s*premium", re.I), None),
+    ("verify", re.compile(r"giffgaff|运营商|esim|美国\+1|\+1\s*号|实体卡号|手机卡", re.I), None),
+    ("topup", re.compile(r"学生认证|正价充|官方正价|代绑|链接代|升级\s*(plus|pro)", re.I), None),
+    ("ai-tool", re.compile(
+        r"adobe|express\s*premium|photoshop|canva|notion|grammarly|capcut|剪映|figma|gamma\.app|gamma\b|heygen|elevenlabs|"
+        r"replit|cline|lovable|bolt\.new|v0\.dev|manus|genspark|lovart|adspower|闲鱼助手|dola|豆包|kimi\s*会员|poe\b|you\.com", re.I),
+     re.compile(r"中转|api\s*额度", re.I)),
+    ("family", re.compile(r"轮转|共享号|合租|多人共享", re.I), None),
+]
+
 def guess_category(text: str) -> str:
-    t = text or ""
+    t = normalize_title(text or "")
     # 中转模型价标题形态："model · $x/单位"
     if re.search(r"·\s*\$[\d.]+\s*/\s*(次|1M)", t) or re.search(r"@\s*\S+\s*$", t) and "/1M" in t:
         if re.search(r"image|dall|flux|seedream|veo|kling|imagine|banana|jimeng|midjourney", t, re.I):
             return "image-api"
         return "api-relay"
-    for cat, pos, neg in CAT_RULES:
+    for cat, pos, neg in PRE_RULES + CAT_RULES:
         if pos.search(t) and not (neg and neg.search(t)):
             return cat
+    if re.search(r"plus|pro\s*\d*x|\d+x\b|ultra|super|max\s*x?\d*", t, re.I):
+        return "account"
     return "other"
 
 SUB_RULES = [
@@ -118,8 +148,9 @@ TIER = [
 ]
 
 FORM = [
+    ("api-credit", PRE_RULES[0][1]),
     ("topup", re.compile(r"代充|直充|官方充|cdk|卡密充|续费|秒充|自助充", re.I)),
-    ("family", re.compile(r"家庭|拼车|车位|席位", re.I)),
+    ("family", re.compile(r"家庭|拼车|车位|席位|轮转|共享号|合租", re.I)),
     ("verify", re.compile(r"(?<!未)(?<!不)(接码|接马)|(?<!未)实卡(?!充)|sms", re.I)),
     ("email", re.compile(r"邮箱|gmail|outlook|hotmail|icloud", re.I)),
     ("account", re.compile(r"成品|独享|账密|带2fa|订阅号", re.I)),
@@ -136,7 +167,7 @@ DURATION = [
 
 def product_key(text: str) -> str:
     """归一化商品键，用于同款聚合。例：谷歌免费账号 / Gmail新号 / 谷歌邮箱 → gmail:email:free"""
-    t = text or ""
+    t = normalize_title(text or "")
     brand = next((b for b, rx in BRANDS if rx.search(t)), None)
     form = next((f for f, rx in FORM if rx.search(t)), None)
     tier = next((x for x, rx in TIER if rx.search(t)), None)
@@ -159,6 +190,10 @@ def product_key(text: str) -> str:
         m = re.match(r"^\s*([a-z0-9._/-]+)", t, re.I)
         return f"relay:{(m.group(1) if m else t[:40]).lower()}"
 
+    if form == "api-credit":   # 额度卡：品牌只认 AI 厂商，档位用面额
+        if brand not in ("chatgpt", "claude", "gemini", "grok"): brand = None
+        amt = re.search(r"(\d+(?:\.\d+)?)\s*(刀|美元|usd|\$|u\b)", t, re.I)
+        tier = f"{amt.group(1)}usd" if amt else None
     parts = [brand or "misc", form or guess_category(t), tier, dur]
     if not brand:   # 无品牌：附加标题指纹，避免无关商品被并成一团
         slug = re.sub(r"[\W_]+", "", collapse_repeats(t).lower())[:24]
@@ -254,7 +289,7 @@ def apply_junk_and_category(batch_limit=100000):
         card_api = o.get("source") != "relay"
         # product_key 形态优先：避免「未接码」等误伤导致分类漂移
         form = (key.split(":")[1] if ":" in key else "")
-        form_to_cat = {"email": "email", "verify": "verify", "topup": "topup", "family": "family",
+        form_to_cat = {"api-credit": "api-credit", "email": "email", "verify": "verify", "topup": "topup", "family": "family",
                        "account": "account", "payment": "payment", "social": "social"}
         if form in form_to_cat:
             cat = form_to_cat[form]

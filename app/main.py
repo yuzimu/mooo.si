@@ -276,7 +276,7 @@ def model_list(request: Request, q: str = "", bucket: str = ""):
            "canonical": f"{config.SITE_URL}/models"}
     return templates.TemplateResponse(request, "models.html", {
         "groups": groups, "q": q, "bucket": bucket, "buckets": [(b, BUCKET_LABEL[b]) for b in BUCKET_ORDER],
-        "total_flat": len(flat), "assume": ASSUME, "seo": seo})
+        "total_flat": len(flat), "assume": ASSUME, "top_n": 12, "seo": seo})
 
 
 @app.get("/models/{model_name:path}")

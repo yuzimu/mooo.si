@@ -3,6 +3,8 @@ from .fingerprint import fingerprint
 from .catfk import CatFK
 from .ldxp import LdxpShop
 from .newapi import NewAPI
+from .cardsys import AcgFaka, Dujiaoka, DujiaoNext
 
-CRAWLERS = {"catfk": CatFK(), "ldxp": LdxpShop(), "new-api": NewAPI(), "one-api": NewAPI()}
+CRAWLERS = {"catfk": CatFK(), "ldxp": LdxpShop(), "new-api": NewAPI(), "one-api": NewAPI(),
+            "acg-faka": AcgFaka(), "dujiaoka": Dujiaoka(), "dujiao-next": DujiaoNext()}
 __all__ = ["fingerprint", "CRAWLERS"]
