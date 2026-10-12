@@ -7,7 +7,7 @@ from .net import client
 
 # —— 垃圾：教程/须知/公告/测试/占位 ——
 JUNK_TITLE = re.compile(
-    r"(教程|须知|必看|说明(?!书)|公告|通知|温馨提示|售后须知|使用说明|下单前|请先看|看完再买|"
+    r"(教程|须知必看|购买须知|售后须知|使用说明|下单前必|请先看|看完再买|温馨提示|公告|通知|"
     r"测试商品|测一测|勿拍|不要拍|仅测试|占位|示例|demo\b|sample\b|"
     r"充值教程|开通教程|绑定教程|如何使用|怎么用)", re.I)
 JUNK_ZERO = re.compile(r"(免费领取|0元购|零元|面议|联系客服询价)", re.I)
@@ -83,13 +83,17 @@ OFF_SHELF = re.compile(
 CAPTCHA = re.compile(r"aliyun_waf|captcha|challenge-platform|cf-browser-verification|just a moment", re.I)
 
 def classify_page(status: int, text: str, title: str = "") -> str:
-    blob = (title or "") + "\n" + (text or "")[:8000]
+    raw = text or ""
+    blob = (title or "") + "\n" + raw[:50000]  # SPA 把文案塞进 JSON/JS，多看一点
     if status >= 400: return f"http_{status}"
     if CAPTCHA.search(blob): return "captcha"
     if OFF_SHELF.search(blob): return "off_shelf"
-    # SPA 空壳：可见文本极少
+    # 常见发卡站把「未上架」写在前端 i18n / 初始 state 里
+    if re.search(r"未上架|已下架|goodsNotExist|GOODS_NOT|item_not_found|offShelf|off_shelf", blob, re.I):
+        return "off_shelf"
     visible = re.sub(r"<script[\s\S]*?</script>|<style[\s\S]*?</style>|<[^>]+>|\s+", " ", blob)
-    if len(visible.strip()) < 40 and ("id=\"app\"" in (text or "") or "id=\"root\"" in (text or "") or "<!doctype" in (text or "").lower()): return "spa_empty"
+    if len(visible.strip()) < 40 and re.search(r'id=["\'](app|root|__nuxt)', raw, re.I):
+        return "spa_empty"
     return "ok"
 
 def apply_junk_and_category(batch_limit=50000):
