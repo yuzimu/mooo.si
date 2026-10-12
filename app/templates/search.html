@@ -31,19 +31,19 @@
     {% for x in r['items'] %}
       {% if g == 'offers' %}
       <li class="flex items-center justify-between gap-3 px-4 py-3">
-        <div class="min-w-0"><a href="{{ x.url | go }}" data-go="{{ x.url }}" rel="nofollow noopener" target="_blank" class="line-clamp-2 text-sm font-medium text-slate-800 hover:underline dark:text-slate-100">{{ x.title }}</a>
+        <div class="min-w-0 flex-1"><a href="{{ x.url | go }}" data-go="{{ x.url }}" rel="nofollow noopener" target="_blank" class="line-clamp-2 text-sm font-medium text-slate-800 hover:underline dark:text-slate-100">{{ x.title }}</a>
           <p class="mt-0.5 truncate text-xs text-slate-500">{{ cat_meta(x.category)[0] }} · {{ x.seller or x.source }}{% if x.stock is not none %} · 库存 {{ x.stock }}{% endif %}</p></div>
         <div class="shrink-0 text-right font-mono text-base font-bold text-violet-600 dark:text-violet-400">{{ x.price | money(x.currency) }}</div>
       </li>
       {% elif g in ('shops', 'relays', 'tg') %}
       <li class="flex items-center justify-between gap-3 px-4 py-3">
-        <div class="min-w-0"><a href="{{ x.slug | target_path(x.type) if x.slug else (x.url | go) }}" class="truncate text-sm font-medium text-slate-800 hover:underline dark:text-slate-100">{{ x.name or x._id.split(':',1)[-1] }}</a>
+        <div class="min-w-0 flex-1"><a href="{{ x.slug | target_path(x.type) if x.slug else (x.url | go) }}" class="block truncate text-sm font-medium text-slate-800 hover:underline dark:text-slate-100">{{ x.name or x._id.split(':',1)[-1] }}</a>
           <p class="mt-0.5 truncate font-mono text-xs text-slate-500">{{ x.url }}</p></div>
-        <div class="shrink-0 text-right text-xs text-slate-500">{{ x.platform or '未知平台' }}<br>{{ x.status }} · 提及 {{ x.mentions or 0 }}</div>
+        <div class="w-24 shrink-0 text-right text-xs text-slate-500">{{ x.platform or '未知平台' }}<br>{{ x.status }} · 提及 {{ x.mentions or 0 }}</div>
       </li>
       {% elif g == 'models' %}
       <li class="flex items-center justify-between gap-3 px-4 py-3">
-        <div class="min-w-0"><a href="/models/{{ x.family | urlencode }}" class="truncate font-mono text-sm font-semibold text-slate-800 hover:underline dark:text-slate-100">{{ x.family }}</a>
+        <div class="min-w-0 flex-1"><a href="/models/{{ x.family | urlencode }}" class="block truncate font-mono text-sm font-semibold text-slate-800 hover:underline dark:text-slate-100">{{ x.family }}</a>
           <p class="mt-0.5 text-xs text-slate-500">{{ x.bucket }} · {{ x.variant_n }} 个变体 · {{ x.sites }} 家中转{% if x.alias %} · 别名 {{ x.alias }}{% endif %}</p></div>
         <div class="shrink-0 text-right"><div class="font-mono font-bold text-violet-600 dark:text-violet-400">¥{{ x.min }}</div><div class="text-[11px] text-slate-500">/ {{ x.unit }}</div></div>
       </li>

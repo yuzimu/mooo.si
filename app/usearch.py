@@ -57,7 +57,15 @@ def search(q: str, group: str | None = None, page: int = 1, per: int = 20, previ
         if g == "offers":
             f = store.build_filter(q=q)   # 默认剔除中转模型价（硬隔离）
             total = store.db().offers.count_documents(f)
-            items = [store._ns(d) for d in store.db().offers.find(f, {"kw": 0}).sort([("price", 1)]).skip(skip).limit(n)] if g in want else []
+            items = []
+            if g in want:   # 相关性：标题直接含关键词的优先，其次 kw 命中（如卖家名），组内按价格
+                rx = {"$regex": re.escape(q), "$options": "i"}
+                f1 = {**f, "title": rx}; n1 = store.db().offers.count_documents(f1)
+                col = store.db().offers
+                items = [store._ns(d) for d in col.find(f1, {"kw": 0}).sort([("price", 1)]).skip(skip).limit(n)]
+                if len(items) < n:
+                    rest = col.find({**f, "title": {"$not": re.compile(re.escape(q), re.I)}}, {"kw": 0}).sort([("price", 1)])
+                    items += [store._ns(d) for d in rest.skip(max(0, skip - n1)).limit(n - len(items))]
         elif g in TARGET_TYPE:
             f = _target_filter(g, q); col = store.db().targets
             total = col.count_documents(f)
