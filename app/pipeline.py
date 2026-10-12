@@ -123,7 +123,8 @@ def run_targeted(limit=None):
                                                        and t["fp_at"].replace(tzinfo=store.now().tzinfo) > store.now() - timedelta(days=7))]
     # 从未抓过的优先，其次按优先级（提及数/新鲜度/来源数）
     cand.sort(key=lambda t: (bool((t.get("health") or {}).get("at")), -t["_prio"]))
-    cand = cand[: limit or config.TARGET_CRAWL_MAX]
+    if limit:
+        cand = cand[:limit]
     by_domain = defaultdict(list)
     for t in cand: by_domain[urlsplit(t["url"]).hostname].append(t)
     results = []
