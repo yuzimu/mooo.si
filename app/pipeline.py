@@ -148,7 +148,10 @@ def _ldxp_canary(c, col):
             log.info("ldxp canary recovered, unblocked %s targets", r.modified_count)
         return True
     if "风控" in note or "WAF" in note:
-        r = col.update_many({"platform": "ldxp", "status": {"$nin": ["item_gone", "ignored"]}},
+        # 只批量标记「从来没有成功采到过数据」的目标。已经 health.ok=True 的是真有数据的
+        # （例如本地轮换出口跑完后一次性导入的），不能被探针抖动打回 blocked_captcha。
+        r = col.update_many({"platform": "ldxp", "status": {"$nin": ["item_gone", "ignored"]},
+                             "health.ok": {"$ne": True}},
                             {"$set": {"status": "blocked_captcha", "fp_at": store.now(), "ldxp_canary_blocked": True,
                                       "fp": {"platform": "ldxp", "status": "blocked_captcha",
                                              "note": f"ShopApi 也被阿里云 ESA/WAF 拦截，跳过（{note[:120]}）"}}})

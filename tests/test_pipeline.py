@@ -197,3 +197,24 @@ def test_ldxp_canary_blocks_then_recovers(monkeypatch):
     pipeline._ldxp_canary(None, col)
     assert col.find_one({"_id": "ldxp:realwaf"})["status"] == "blocked_captcha"
     col.delete_many({"platform": "ldxp"})
+
+
+def test_ldxp_canary_keeps_harvested_shops(monkeypatch):
+    """回归：canary 批量标记不能把「已经采到数据」的店打回 blocked_captcha。
+
+    本地轮换出口跑完后一次性导入的目标是 health.ok=True 的；生产机在海外、探针必然失败，
+    若不排除它们，下一轮管线（每 2 小时）就会把刚导入的数据全部毒化回 blocked_captcha。
+    """
+    from app import pipeline, store
+    from app.platforms import ldxp
+    col = store.db().targets
+    col.delete_many({"platform": "ldxp"})
+    col.insert_one({"_id": "ldxp:harvested", "platform": "ldxp", "status": "monitored",
+                    "health": {"ok": True, "offers": 419}, "fp": {"platform": "ldxp", "status": "ok"}})
+    col.insert_one({"_id": "ldxp:neverok", "platform": "ldxp", "status": "new"})
+    monkeypatch.setattr(ldxp, "probe", lambda c, tok: (False, "ldxp ShopApi 风控：WAF page on x"))
+    assert pipeline._ldxp_canary(None, col) is False
+    assert col.find_one({"_id": "ldxp:harvested"})["status"] == "monitored"      # 有数据的保住
+    assert not col.find_one({"_id": "ldxp:harvested"}).get("ldxp_canary_blocked")
+    assert col.find_one({"_id": "ldxp:neverok"})["status"] == "blocked_captcha"  # 没数据的照旧标
+    col.delete_many({"platform": "ldxp"})
