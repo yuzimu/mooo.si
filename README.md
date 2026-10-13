@@ -20,7 +20,8 @@ uvicorn app.main:app --reload               # http://127.0.0.1:8000  /search  /a
 | CRAWL_INTERVAL_MIN | 抓取间隔（分钟），默认 30 |
 | PROXY_POOL_URL / PROXY_LIST | 代理池：URL 每行一个代理，或逗号分隔列表；适配器 `use_proxy=True` 时轮换使用 |
 | BROWSER_CDP_URL | 指纹浏览器 CDP 端点，`app.net.browser_page()` 通过 Playwright `connect_over_cdp` 接入 |
-| LDXP_UA / LDXP_X_REAL_IP | 链动小铺 ShopApi 请求头覆盖（留空=用项目 UA，实测即可正常采集）。ESA 只拦 httpx 库默认 UA，`X-Real-IP` 实测无影响 |
+| LDXP_PROXY_LIST / LDXP_PROXY_POOL_URL / LDXP_PROXY_TTL_S / LDXP_PROXY_AUTH | 链动小铺**专用国内出口**。ESA 按 IP 归属地判定：中国 IP 放行、海外 IP 全拦（服务器在东京走主代理池必被拦）；单一中国 IP 约 40 次请求就被 403，所以要轮换。用 `scripts/verify_ldxp_egress.py` 先验证出口能不能过 |
+| LDXP_UA / LDXP_X_REAL_IP | 链动小铺 ShopApi 请求头覆盖，**仅作预案**。实测 5 种 UA × 4 种 X-Real-IP = 20 组全部命中同一挑战页：UA/X-Real-IP 不是判定维度，伪造无效 |
 
 ## 部署（Oracle 服务器 + 1Panel OpenResty）
 0. 1Panel 应用商店安装 MongoDB：端口仅 127.0.0.1，开启认证；创建库 `mooo` 及用户 `mooo`（readWrite），填入 `.env` 的 MONGO_URL。

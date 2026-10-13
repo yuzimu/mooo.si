@@ -9,7 +9,7 @@
 | priceai.cc | 官方公开 feed `data.priceai.cc/latest.json` → `snapshot_url`（无需鉴权，约 5 分钟刷新，52 个商品，每个商品 Top5 报价）。robots 禁止 `/api/`；自称 monitor/radar 的 UA 爬 HTML 会返回 429 → **只读 feed** | ✅ 已实现 |
 | AIGOOD 价格雷达 / ApiNav | 待确认官方域名与是否有 JSON/SSR 数据（猜测域名可访问，未核实）| 🔍 待调研 |
 | oai9 | oai9.com 测试返回 502 | ⚠️ 暂不可用 |
-| ldxp / wzyp 卡网 | ShopApi 是公开 JSON 接口（无需登录、无验证码），可直采：www.ldxp.cn / wzyp.cn 直接返回 `code:1`。pay.ldxp.cn、ldxp.cn 已 301 到 wzyp.cn，抓取时**不跟随跳转**、按域名故障转移（跟随跳转会丢 POST body，被误判成"店铺链接不存在"）| ✅ 已实现 |
+| ldxp / wzyp 卡网 | ShopApi 是公开 JSON 接口（无需登录），但**按 IP 归属地拦截**：中国 IP 返回 `code:1`、海外 IP 一律返回 ESA 挑战页；且单一中国 IP 约 40 次请求即 403，必须轮换。服务器在东京，故生产改为「本地国内出口轮换跑完 → 一次性导入」（`scripts/ldxp_local_harvest.py` + `ldxp_import_harvest.py`）。pay.ldxp.cn、ldxp.cn 已 301 到 wzyp.cn，抓取时**不跟随跳转**、按域名故障转移 | ✅ 已实现（本地采集 + 导入） |
 | Z2U / G2G / Eldorado | robots.txt 可访问；有 Cloudflare 防护，优先找公开搜索接口，低频抓取 | 🔍 待调研 |
 | Telegram 报价 | 不直连 oracle `/opt/tg-collector/messages.db`；由采集器侧导出只读 JSONL，`crawler/adapters/telegram.py` 解析 | 📐 接口已设计 |
 
@@ -33,7 +33,7 @@ source, product, category, title, price, currency, seller, url, in_stock, stock,
 - 备选：无 1Panel 时用 `deploy/Caddyfile` 自动 HTTPS。
 
 ## 合规
-遵守 robots 与站点公开 feed 政策；不绕验证码（ESA 滑块站点跳过）；低频请求；页面声明仅供参考。链动小铺只调用店铺页前端自身也在调的公开 ShopApi JSON 接口（无验证码、无登录）：不破解滑块、不伪装搜索引擎身份；`LDXP_UA` 仅用于避开 ESA 对 httpx 库默认 UA 的机器指纹封锁。
+遵守 robots 与站点公开 feed 政策；不绕验证码（ESA 滑块站点跳过）；低频请求；页面声明仅供参考。链动小铺只调用店铺页前端自身也在调的公开 ShopApi JSON 接口（无验证码、无登录）：不破解滑块、不伪装搜索引擎身份；`LDXP_UA` 仅作预案——实测 UA/X-Real-IP 均非 ESA 的判定维度，判定的是出口 IP 归属地。
 
 ## 线上现状（2026-10-12 部署）
 - `/opt/mooo-si`：docker-compose.yml（镜像 ghcr.io/yuzimu/mooo.si:latest，首个版本在服务器本机构建并打此标签）、`.env`（600 权限）、`data/mooo.db`、`src/`（构建源码）。
@@ -71,6 +71,7 @@ source, product, category, title, price, currency, seller, url, in_stock, stock,
 | TG 公开频道预览 | tg-preview | 24h | `t.me/s/<name>`，群组 302 自动跳过并标记 private |
 | GitHub 列表 | github-lists | 24h | GITHUB_LIST_URLS 中的 awesome Markdown |
 | 搜索引擎指纹 | search | 24h | Brave API（需 BRAVE_API_KEY），查询 New API 页脚、catfk/ldxp 店铺 |
+| ldxp 本地采集 | ldxp | 人工 | 国内出口轮换跑完 `scripts/ldxp_local_harvest.py`，再 `scripts/ldxp_import_harvest.py` 一次性导入 |
 
 规范化：`catfk:<token>` / `ldxp:<token>`（店铺）、`catfk:item:<key>`（抓取时解析为店铺后合并）、`tg:<name>`、`web:<host>`。
 `targets` 集合字段：type(relay/card_shop/tg/unknown)、platform、url、sources{渠道: 次数}、mentions、first_seen/last_seen、status、fp、health、history(最近 10 次)、priority。
@@ -78,7 +79,7 @@ source, product, category, title, price, currency, seller, url, in_stock, stock,
 ### 阶段二：定向抓取（`app/platforms/`）
 - 指纹：`/api/status`（new-api/one-api）、HTML 特征（shopApi=链动系、dujiaoka、acg-faka）、ESA/阿里云验证 → blocked_captcha、CF 挑战 → blocked_cf、5xx/超时 → down。指纹 7 天内复用。
 - 适配器：**catfk**（`/shopApi/Shop/goodsList` JSON，每目标 ≤5 页）、**new-api/one-api**（`/api/pricing` JSON；重点模型写 offers，完整表写 `relay_prices`；304 视为未变化）。
-- ldxp/微店云铺：ShopApi 公开可直采（无需登录、无验证码）；pay.ldxp.cn / ldxp.cn 已迁移，抓取不跟随 3xx、按域名故障转移（www.ldxp.cn → wzyp.cn → pay.ldxp.cn → ldxp.cn）。注意阿里云 ESA 的 `http_bot_simple` 规则会拦 httpx 库默认 UA，故请求显式固定 UA（`LDXP_UA` 可覆盖）；实测 `X-Real-IP` 对放行与否**无影响**。
+- ldxp/微店云铺：ShopApi 公开（无需登录），但阿里云 ESA **按 IP 归属地**放行——中国住宅/机房 IP 都过，日本/美国机房与海外代理全被拦；`UA`/`X-Real-IP` 不是判定维度（20 组组合全部命中同一挑战页）。单一中国 IP 约 40 次请求被 403，所以要用轮换的国内出口。海外服务器无法直采，生产走「本地采集 + 一次性导入」。
 - 调度：priority = log2(提及)×10 + 新鲜度 + 渠道数×3；6 小时内成功抓过的目标跳过；每轮 ≤120 个目标。
 - 带宽与并发：全局 4 并发、同域名串行 + 2s 间隔；GET 自动 ETag/If-Modified-Since（`http_cache`），304 复用缓存正文；只抓 JSON/HTML 不下载资源；浏览器模式屏蔽 image/media/font/stylesheet；每轮写 `pipeline_runs.result.traffic`（字节、请求数、304 数、Top 域名）。
 - 代理：**所有抓取流量强制走 resin 代理池**（`PROXY_REQUIRED=1`，账号 `Default.mooo`），代理不可用则整轮停止。
