@@ -117,6 +117,19 @@ def test_proxy_pool_ttl_refresh(monkeypatch):
     assert calls["n"] == 2
 
 
+def test_proxy_pool_injects_auth(monkeypatch):
+    """巨量IP 账密模式下提取接口只返回 ip:port，必须补上账号密码才能用。"""
+    import httpx
+    from app import net
+    monkeypatch.setattr(net.httpx, "get", lambda url, timeout=10: httpx.Response(200, text="1.2.3.4:8080,600\n5.6.7.8:9090"))
+    p = net.ProxyPool(url="http://extract.example/", ttl=60, auth="tt:pw")
+    got = {p.get(), p.get()}
+    assert got == {"http://tt:pw@1.2.3.4:8080", "http://tt:pw@5.6.7.8:9090"}
+    # 已带鉴权的条目不被覆盖
+    p2 = net.ProxyPool(static=["http://other:secret@9.9.9.9:1"], ttl=60, auth="tt:pw")
+    assert p2.get() == "http://other:secret@9.9.9.9:1"
+
+
 def test_ldxp_gets_own_cn_egress(monkeypatch):
     """ldxp 必须能走单独的国内出口池，其余目标仍走主池。"""
     from app import config, pipeline

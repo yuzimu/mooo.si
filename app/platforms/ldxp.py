@@ -66,7 +66,8 @@ def cn_pool():
     with _pool_lock:
         if _pool is None:
             from ..net import ProxyPool
-            _pool = ProxyPool(config.LDXP_PROXY_LIST, config.LDXP_PROXY_POOL_URL, ttl=config.LDXP_PROXY_TTL_S)
+            _pool = ProxyPool(config.LDXP_PROXY_LIST, config.LDXP_PROXY_POOL_URL,
+                              ttl=config.LDXP_PROXY_TTL_S, auth=config.LDXP_PROXY_AUTH)
     return _pool
 
 

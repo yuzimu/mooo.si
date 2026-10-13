@@ -21,11 +21,19 @@ def norm_proxy(p):
     return p if "://" in p else f"http://{p}"
 
 class ProxyPool:
-    def __init__(self, static=None, url=None, ttl=0):
+    def __init__(self, static=None, url=None, ttl=0, auth=None):
         self.static, self.url, self._lock = list(static or []), url, threading.Lock()
         self._cycle = None
         self.ttl = ttl     # >0 时按秒定时重取（短效代理 IP 会过期）
+        self.auth = auth   # `user:pass`：提取接口只返回 ip:port 时（如巨量IP 账密模式）补上鉴权
         self._at = 0.0
+    def _auth(self, p):
+        """给没有鉴权信息的代理串补上账号密码；已有 @ 的原样保留。"""
+        if not self.auth or "@" in p: return p
+        if "://" in p:
+            scheme, rest = p.split("://", 1)
+            return f"{scheme}://{self.auth}@{rest}"
+        return f"http://{self.auth}@{p}"
     def refresh(self):
         proxies = list(self.static)
         if self.url:
@@ -36,7 +44,7 @@ class ProxyPool:
                 proxies += [tok.split(",")[0].strip() for tok in r.text.split() if tok.strip()]
             except httpx.HTTPError:
                 pass
-        proxies = [p for p in proxies if p]
+        proxies = [self._auth(p) for p in proxies if p]
         random.shuffle(proxies)
         with self._lock:
             self._cycle = itertools.cycle(proxies) if proxies else None

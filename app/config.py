@@ -29,6 +29,8 @@ LDXP_X_REAL_IP = os.getenv("LDXP_X_REAL_IP", "")
 LDXP_PROXY_LIST = [p for p in os.getenv("LDXP_PROXY_LIST", "").split(",") if p]
 LDXP_PROXY_POOL_URL = os.getenv("LDXP_PROXY_POOL_URL", "")
 LDXP_PROXY_TTL_S = int(os.getenv("LDXP_PROXY_TTL_S", "3000"))
+# 提取接口只给 ip:port、代理又要账密时填这里（形如 user:pass）；白名单模式留空。
+LDXP_PROXY_AUTH = os.getenv("LDXP_PROXY_AUTH", "")
 GROUPS_PER_PAGE = int(os.getenv("GROUPS_PER_PAGE", "12"))
 TG_DB_PATH = os.getenv("TG_DB_PATH", "")            # 只读挂载的 tg-collector messages.db
 TG_PREVIEW_MAX = int(os.getenv("TG_PREVIEW_MAX", "40"))
