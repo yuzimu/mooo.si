@@ -2,8 +2,12 @@
 
 参考 dimthink/PriceAI scripts/collect-prices.mjs 的实现：
 - 6 个公开 POST 接口：Shop/{info,categoryList,goodsList,goodsInfo,getUserChannel,getGoodsPrice}
-- base 三域名：pay.ldxp.cn（默认）/ www.ldxp.cn / ldxp.cn，故障自动切换
+- base 多域名：www.ldxp.cn / wzyp.cn（现主站）/ pay.ldxp.cn / ldxp.cn，故障自动切换
+- 域名迁移：pay.ldxp.cn 与 ldxp.cn 现 301 到 wzyp.cn。若跟随跳转，httpx 会把 POST 降级为 GET 并丢掉请求体，
+  服务端随即返回 {"code":0,"msg":"店铺链接不存在"}——会被误判成"店铺不存在"。故不跟随跳转，3xx 一律换域名重试。
 - 每次请求带随机 visitorid 头 + 店铺 referer（模拟 ldxp 前端访客追踪）
+- UA 显式固定（LDXP_UA 可覆盖）：阿里云 ESA 的 http_bot_simple 规则会拦 httpx 默认 UA
+  (x-tengine-error: denied by http_bot_simple)，不能让请求落到库的默认 UA 上。
 - 风控页结构化识别：非 JSON 响应命中 captcha/验证/风控等关键字则抛 LdxpWafBlocked
 """
 import re
@@ -12,7 +16,9 @@ import secrets
 from .. import config
 from ..schema import Offer, guess_category
 
-BASES = ["https://pay.ldxp.cn", "https://www.ldxp.cn", "https://ldxp.cn"]
+# 实测：www.ldxp.cn / wzyp.cn 直接返回 code:1；pay.ldxp.cn 与 ldxp.cn 均 301 到 wzyp.cn。
+# 把可用域名放前面，避免每次抓取都白跑一次跳转。
+BASES = ["https://www.ldxp.cn", "https://wzyp.cn", "https://pay.ldxp.cn", "https://ldxp.cn"]
 TYPES = ["card", "article", "resource", "equity"]
 PAGE_SIZE = 100
 MAX_API_PAGES = 10  # PriceAI 上限 10 页
@@ -26,19 +32,31 @@ class LdxpWafBlocked(Exception):
     """命中风控页：与普通失败区分，pipeline 侧标记而非无脑重试。"""
 
 
-def _headers(token):
-    return {
+class LdxpRedirect(Exception):
+    """域名跳转（3xx）：跟随跳转会丢请求体并被误判为“店铺不存在”，因此换域名重试而不是当作成功。"""
+
+
+def _headers(token, base=None):
+    base = base or BASES[0]
+    h = {
         "content-type": "application/json",
         "accept": "application/json, text/plain, */*",
         "visitorid": secrets.token_hex(12),
-        "referer": f"https://pay.ldxp.cn/shop/{token}",
+        "referer": f"{base}/shop/{token}",
+        "User-Agent": config.LDXP_UA or config.USER_AGENT,
     }
+    if config.LDXP_X_REAL_IP:
+        h["X-Real-IP"] = config.LDXP_X_REAL_IP
+    return h
 
 
 def _post(c, base, path, token, payload):
-    """POST ShopApi，返回 (base, data)。非 JSON 或风控页抛 LdxpWafBlocked。"""
+    """POST ShopApi，返回 data。跳转 / 非 JSON / 风控页分别区分抛错。"""
     r = c.post(f"{base}/shopApi/Shop/{path}", json=payload,
-               headers=_headers(token), timeout=20)
+               headers=_headers(token, base), timeout=20, follow_redirects=False)
+    if r.is_redirect:
+        # 关键：绝不跟随。POST->GET 降级会返回合法的 {"code":0,"msg":"店铺链接不存在"}，看起来像业务失败。
+        raise LdxpRedirect(f"redirect {r.status_code} on {base}{path} -> {r.headers.get('location')}")
     try:
         d = r.json()
     except Exception as e:
@@ -51,12 +69,12 @@ def _post(c, base, path, token, payload):
 
 
 def _post_failover(c, path, token, payload):
-    """三域名故障转移：主域名失败且像出口/风控问题时切备用域名。返回 (base, data)。"""
+    """多域名故障转移：主域名失败且像出口/风控/跳转问题时切备用域名。返回 (base, data)。"""
     last = None
     for base in BASES:
         try:
             return base, _post(c, base, path, token, payload)
-        except (LdxpWafBlocked, ValueError) as e:
+        except (LdxpWafBlocked, LdxpRedirect, ValueError) as e:
             last = e
             continue
     raise last

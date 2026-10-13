@@ -19,6 +19,10 @@ LDXP_SHOWCASE_PAGES = int(os.getenv("LDXP_SHOWCASE_PAGES", "130"))
 OAI9_HOT_URL = os.getenv("OAI9_HOT_URL", "")
 LDXP_MERCHANT_TOKEN = os.getenv("LDXP_MERCHANT_TOKEN", "")
 LDXP_MERCHANT_KEYWORDS = [k for k in os.getenv("LDXP_MERCHANT_KEYWORDS", "gemini,claude,plus,gcp").split(",") if k]
+# 链动小铺 ShopApi 请求头：UA 留空则用 USER_AGENT（实测 ESA 只拦 httpx 库默认 UA）。
+# LDXP_UA=Baiduspider / LDXP_X_REAL_IP=... 可按需覆盖；实测 X-Real-IP 对放行与否无影响。
+LDXP_UA = os.getenv("LDXP_UA", "")
+LDXP_X_REAL_IP = os.getenv("LDXP_X_REAL_IP", "")
 GROUPS_PER_PAGE = int(os.getenv("GROUPS_PER_PAGE", "12"))
 TG_DB_PATH = os.getenv("TG_DB_PATH", "")            # 只读挂载的 tg-collector messages.db
 TG_PREVIEW_MAX = int(os.getenv("TG_PREVIEW_MAX", "40"))
