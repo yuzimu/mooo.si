@@ -52,19 +52,21 @@ def _headers(token, base=None):
 
 def _post(c, base, path, token, payload):
     """POST ShopApi，返回 data。跳转 / 非 JSON / 风控页分别区分抛错。"""
-    r = c.post(f"{base}/shopApi/Shop/{path}", json=payload,
-               headers=_headers(token, base), timeout=20, follow_redirects=False)
+    url = f"{base}/shopApi/Shop/{path}"
+    r = c.post(url, json=payload, headers=_headers(token, base), timeout=20, follow_redirects=False)
     if r.is_redirect:
         # 关键：绝不跟随。POST->GET 降级会返回合法的 {"code":0,"msg":"店铺链接不存在"}，看起来像业务失败。
-        raise LdxpRedirect(f"redirect {r.status_code} on {base}{path} -> {r.headers.get('location')}")
+        raise LdxpRedirect(f"redirect {r.status_code} on {url} -> {r.headers.get('location')}")
     try:
         d = r.json()
     except Exception as e:
         if WAF_RE.search(r.text[:2000]):
-            raise LdxpWafBlocked(f"WAF page on {base}{path}") from e
-        raise ValueError(f"non-JSON from {base}{path}: {r.status_code}") from e
+            # 带上状态码与 ESA 判定依据，便于线上区分「IP 被拦」还是「页面风控」
+            why = r.headers.get("x-tengine-error") or ("esa" if "ESA" in r.headers.get("server", "") else "html")
+            raise LdxpWafBlocked(f"WAF page on {url}: HTTP {r.status_code} ({why})") from e
+        raise ValueError(f"non-JSON from {url}: {r.status_code}") from e
     if isinstance(d, dict) and WAF_RE.search(str(d.get("msg", ""))):
-        raise LdxpWafBlocked(f"WAF msg on {base}{path}: {d.get('msg')}")
+        raise LdxpWafBlocked(f"WAF msg on {url}: {d.get('msg')}")
     return d
 
 

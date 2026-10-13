@@ -96,3 +96,33 @@ def test_cycle_lease_lock():
     store.db().locks.update_one({"_id": "cycle"}, {"$set": {"until": store.now().replace(year=2000)}})
     assert pipeline._lock("cycle") is True         # 过期租约可接管
     store.db().locks.delete_many({})
+
+
+def test_ldxp_canary_blocks_then_recovers(monkeypatch):
+    """回归：canary 批量标记必须可回收。
+
+    2026-10-12 一次探针失败把 18458 个 ldxp 目标全写成 blocked_captcha，而 run_targeted 会
+    冷处理 blocked_captcha 7 天，且没有任何路径把它们放回来 —— 整条 ldxp 采集线就此停摆。
+    """
+    from app import pipeline, store
+    from app.platforms import ldxp
+    col = store.db().targets
+    col.delete_many({"platform": "ldxp"})
+    for tok in ("oak", "86ca7ta7"):
+        col.insert_one({"_id": f"ldxp:{tok}", "platform": "ldxp", "type": "card_shop",
+                        "url": f"https://pay.ldxp.cn/shop/{tok}", "status": "new"})
+    # 探针被 ESA 拦：整批标记 + 打 canary 标记
+    monkeypatch.setattr(ldxp, "probe", lambda c, tok: (False, "ldxp ShopApi 风控：WAF page on x"))
+    assert pipeline._ldxp_canary(None, col) is False
+    assert {d["status"] for d in col.find({"platform": "ldxp"})} == {"blocked_captcha"}
+    assert all(d.get("ldxp_canary_blocked") for d in col.find({"platform": "ldxp"}))
+    # 探针恢复：这批必须自动复位成 new 并清掉 fp，否则永远不再重试
+    monkeypatch.setattr(ldxp, "probe", lambda c, tok: (True, "AI源头-oak"))
+    assert pipeline._ldxp_canary(None, col) is True
+    for d in col.find({"platform": "ldxp"}):
+        assert d["status"] == "new" and "ldxp_canary_blocked" not in d and "fp" not in d
+    # 逐个真·风控的目标不受 reset 影响
+    col.insert_one({"_id": "ldxp:realwaf", "platform": "ldxp", "status": "blocked_captcha", "fp_at": store.now()})
+    pipeline._ldxp_canary(None, col)
+    assert col.find_one({"_id": "ldxp:realwaf"})["status"] == "blocked_captcha"
+    col.delete_many({"platform": "ldxp"})

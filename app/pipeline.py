@@ -110,16 +110,32 @@ _DEADLINE = [float("inf")]
 
 
 def _ldxp_canary(c, col):
-    """抽一个 ldxp 店铺探 ShopApi：返回 JSON 才放行全部 ldxp 目标；若被 ESA/WAF 拦截则整批跳过（不绕过验证码）。"""
+    """抽一个 ldxp 店铺探 ShopApi：返回 JSON 才放行全部 ldxp 目标；若被 ESA/WAF 拦截则整批跳过（不绕过验证码）。
+
+    注意「批量跳过」必须可回收：整批写 blocked_captcha 会让目标被 run_targeted 冷处理 CAPTCHA_RETRY_H 小时，
+    一次探针抖动就锁死上万个目标（2026-10-12 曾把 18458 个全标成 blocked_captcha 且从此不再重试）。
+    因此批量标记打 ldxp_canary_blocked，探针恢复后只复位这批；真·逐个风控的目标不受影响。
+    """
     from .platforms.ldxp import probe
     t = col.find_one({"platform": "ldxp", "_id": {"$regex": "^ldxp:"}}, {"_id": 1})
     if not t: return True
     ok, note = probe(c, t["_id"].split(":", 1)[1])
     store.db().pipeline_runs.insert_one({"stage": "ldxp_canary", "at": store.now(), "ok": ok, "note": note[:200]})
-    if not ok and ("风控" in note or "WAF" in note):
-        col.update_many({"platform": "ldxp", "status": {"$nin": ["item_gone", "ignored"]}},
-                        {"$set": {"status": "blocked_captcha", "fp_at": store.now(),
-                                  "fp": {"platform": "ldxp", "status": "blocked_captcha", "note": "ShopApi 也被阿里云 ESA/WAF 拦截，跳过"}}})
+    if ok:
+        # 探针恢复：复位上一轮 canary 批量标记的目标，并清掉它们的 fp 以便重新指纹
+        r = col.update_many({"platform": "ldxp", "ldxp_canary_blocked": True},
+                            {"$set": {"status": "new"},
+                             "$unset": {"ldxp_canary_blocked": 1, "fp": 1, "fp_at": 1}})
+        if r.modified_count:
+            store.db().pipeline_runs.insert_one({"stage": "ldxp_canary_unblock", "at": store.now(), "n": r.modified_count})
+            log.info("ldxp canary recovered, unblocked %s targets", r.modified_count)
+        return True
+    if "风控" in note or "WAF" in note:
+        r = col.update_many({"platform": "ldxp", "status": {"$nin": ["item_gone", "ignored"]}},
+                            {"$set": {"status": "blocked_captcha", "fp_at": store.now(), "ldxp_canary_blocked": True,
+                                      "fp": {"platform": "ldxp", "status": "blocked_captcha",
+                                             "note": f"ShopApi 也被阿里云 ESA/WAF 拦截，跳过（{note[:120]}）"}}})
+        store.db().pipeline_runs.insert_one({"stage": "ldxp_canary_block", "at": store.now(), "n": r.modified_count})
         return False
     return True
 
@@ -145,8 +161,9 @@ def run_targeted(limit=None, max_minutes=None):
         if not at: return False
         at = at.replace(tzinfo=store.now().tzinfo)
         return at > (fresh if h.get("ok") else retry)   # 成功的按 MIN_INTERVAL 错峰，失败的（非验证码）按 FAIL_RETRY_H 重试
+    captcha_cool = store.now() - timedelta(hours=config.CAPTCHA_RETRY_H)
     cand = [t for t in cand if not recent(t) and not (t.get("status") == "blocked_captcha" and t.get("fp_at")
-                                                       and t["fp_at"].replace(tzinfo=store.now().tzinfo) > store.now() - timedelta(days=7))]
+                                                       and t["fp_at"].replace(tzinfo=store.now().tzinfo) > captcha_cool)]
     # 从未抓过的优先，其次按优先级（提及数/新鲜度/来源数）
     cand.sort(key=lambda t: (bool((t.get("health") or {}).get("at")), -t["_prio"]))
     if limit:
