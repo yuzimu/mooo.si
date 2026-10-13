@@ -23,6 +23,12 @@ LDXP_MERCHANT_KEYWORDS = [k for k in os.getenv("LDXP_MERCHANT_KEYWORDS", "gemini
 # LDXP_UA=Baiduspider / LDXP_X_REAL_IP=... 可按需覆盖；实测 X-Real-IP 对放行与否无影响。
 LDXP_UA = os.getenv("LDXP_UA", "")
 LDXP_X_REAL_IP = os.getenv("LDXP_X_REAL_IP", "")
+# ldxp 专用出口（国内）：ESA 只放行中国 IP，主代理池全是海外节点（实测被拦）。
+# 用 LDXP_PROXY_POOL_URL 挂短效代理提取接口（每次调用返回 ip:port 列表），LDXP_PROXY_TTL_S 控制重取间隔，
+# 要小于 IP 有效期（巨量IP 短效默认 1 小时，故默认 3000s=50 分钟）。留空则沿用主代理池。
+LDXP_PROXY_LIST = [p for p in os.getenv("LDXP_PROXY_LIST", "").split(",") if p]
+LDXP_PROXY_POOL_URL = os.getenv("LDXP_PROXY_POOL_URL", "")
+LDXP_PROXY_TTL_S = int(os.getenv("LDXP_PROXY_TTL_S", "3000"))
 GROUPS_PER_PAGE = int(os.getenv("GROUPS_PER_PAGE", "12"))
 TG_DB_PATH = os.getenv("TG_DB_PATH", "")            # 只读挂载的 tg-collector messages.db
 TG_PREVIEW_MAX = int(os.getenv("TG_PREVIEW_MAX", "40"))

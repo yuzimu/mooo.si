@@ -62,10 +62,20 @@ def priority(t):
         age_days = (store.now() - ls).days
     return round(math.log2(1 + t.get("mentions", 1)) * 10 + max(0, 30 - age_days) + len(t.get("sources") or {}) * 3, 2)
 
+def _egress_kw(t):
+    """ldxp 需要中国出口（ESA 只放行中国 IP），单独走 LDXP_PROXY_* 池；其余目标用主代理池。"""
+    from .platforms import ldxp
+    if not t: return {}
+    if t.get("platform") == "ldxp" or str(t.get("_id", "")).startswith("ldxp:"):
+        p = ldxp.cn_proxy()
+        if p: return {"proxy": p}
+    return {}
+
+
 def _crawl_domain(items):
     """同一域名内串行 + 间隔（每域限速）；域名之间并发。"""
     out = []
-    with client(headers={"User-Agent": config.BROWSER_UA}) as c:
+    with client(headers={"User-Agent": config.BROWSER_UA}, **_egress_kw(items[0] if items else None)) as c:
         for t in items:
             heartbeat()
             if time.time() > _DEADLINE[0]:
@@ -119,7 +129,14 @@ def _ldxp_canary(c, col):
     from .platforms.ldxp import probe
     t = col.find_one({"platform": "ldxp", "_id": {"$regex": "^ldxp:"}}, {"_id": 1})
     if not t: return True
-    ok, note = probe(c, t["_id"].split(":", 1)[1])
+    from .platforms import ldxp
+    proxy = ldxp.cn_proxy()
+    if proxy:
+        # 探针也必须走国内出口，否则永远探不通
+        with client(proxy=proxy, cache=False, headers={"User-Agent": config.BROWSER_UA}) as lc:
+            ok, note = probe(lc, t["_id"].split(":", 1)[1])
+    else:
+        ok, note = probe(c, t["_id"].split(":", 1)[1])
     store.db().pipeline_runs.insert_one({"stage": "ldxp_canary", "at": store.now(), "ok": ok, "note": note[:200]})
     if ok:
         # 探针恢复：复位上一轮 canary 批量标记的目标，并清掉它们的 fp 以便重新指纹

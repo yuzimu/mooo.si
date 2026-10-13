@@ -87,6 +87,51 @@ def test_purge_ignores_ai_products_and_blocks_readd():
     store.db().offers.delete_many({"target": "web:heck.ai"})
 
 
+def test_norm_proxy_formats():
+    """提取接口返回的两种格式都要能直接喂给 httpx。"""
+    from app.net import norm_proxy
+    assert norm_proxy("1.2.3.4:8080") == "http://1.2.3.4:8080"
+    assert norm_proxy("1.2.3.4:8080,281") == "http://1.2.3.4:8080"          # 带 ip_remain 后缀
+    assert norm_proxy("http://u:p@1.2.3.4:8080") == "http://u:p@1.2.3.4:8080"
+    assert norm_proxy("  1.2.3.4:8080  ") == "http://1.2.3.4:8080"
+    assert norm_proxy("") is None
+
+
+def test_proxy_pool_ttl_refresh(monkeypatch):
+    """短效代理会过期：ttl 到期必须重取，否则一直复用失效 IP。"""
+    import httpx
+    from app import net
+    calls = {"n": 0}
+
+    def fake_get(url, timeout=10):
+        calls["n"] += 1
+        return httpx.Response(200, text=f"10.0.0.{calls['n']}:8080,600")
+
+    monkeypatch.setattr(net.httpx, "get", fake_get)
+    p = net.ProxyPool(url="http://extract.example/", ttl=3600)
+    assert p.get() == "10.0.0.1:8080"
+    assert p.get() == "10.0.0.1:8080"        # 未到期：复用同一批
+    assert calls["n"] == 1
+    p._at -= 3601                            # 模拟 ttl 到期
+    assert p.get() == "10.0.0.2:8080"
+    assert calls["n"] == 2
+
+
+def test_ldxp_gets_own_cn_egress(monkeypatch):
+    """ldxp 必须能走单独的国内出口池，其余目标仍走主池。"""
+    from app import config, pipeline
+    from app.platforms import ldxp
+    monkeypatch.setattr(config, "LDXP_PROXY_LIST", ["http://cn.example:8080"])
+    monkeypatch.setattr(ldxp, "_pool", None)          # 丢掉缓存，按新配置重建
+    assert pipeline._egress_kw({"_id": "ldxp:oak", "platform": "ldxp"}) == {"proxy": "http://cn.example:8080"}
+    assert pipeline._egress_kw({"_id": "web:x.com", "platform": None}) == {}
+    assert pipeline._egress_kw(None) == {}
+    monkeypatch.setattr(config, "LDXP_PROXY_LIST", [])
+    monkeypatch.setattr(ldxp, "_pool", None)
+    assert ldxp.cn_pool() is None
+    assert pipeline._egress_kw({"_id": "ldxp:oak", "platform": "ldxp"}) == {}
+
+
 def test_cycle_lease_lock():
     from app import pipeline, store
     store.db().locks.delete_many({})

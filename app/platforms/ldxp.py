@@ -12,6 +12,7 @@
 """
 import re
 import secrets
+import threading
 
 from .. import config
 from ..schema import Offer, guess_category
@@ -48,6 +49,31 @@ def _headers(token, base=None):
     if config.LDXP_X_REAL_IP:
         h["X-Real-IP"] = config.LDXP_X_REAL_IP
     return h
+
+
+_pool = None
+_pool_lock = threading.Lock()
+
+
+def cn_pool():
+    """ldxp 专用（国内）出口池；没配 LDXP_PROXY_* 时返回 None，调用方沿用主代理池。
+
+    ESA 只放行中国 IP：主池全是海外节点时 ldxp 恒定被拦，必须给 ldxp 单独一个国内出口。
+    """
+    global _pool
+    if not (config.LDXP_PROXY_LIST or config.LDXP_PROXY_POOL_URL):
+        return None
+    with _pool_lock:
+        if _pool is None:
+            from ..net import ProxyPool
+            _pool = ProxyPool(config.LDXP_PROXY_LIST, config.LDXP_PROXY_POOL_URL, ttl=config.LDXP_PROXY_TTL_S)
+    return _pool
+
+
+def cn_proxy():
+    """取一个国内出口；未配置或池子为空返回 None（调用方回落到主池）。"""
+    p = cn_pool()
+    return p.get() if p else None
 
 
 def _post(c, base, path, token, payload):

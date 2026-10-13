@@ -3,30 +3,47 @@
 - PROXY_REQUIRED=1 时所有抓取流量必须走代理池；代理不可用则 fail closed（抛 ProxyUnavailable，不直连）。
 - 条件请求：GET 自动带 If-None-Match / If-Modified-Since；304 时返回缓存的正文（http_cache 集合，≤3MB）。
 - 带宽：每个 Client 统计下载字节，汇总到全局计数器，管线结束写入 pipeline_runs。"""
-import hashlib, itertools, random, threading
+import hashlib, itertools, random, threading, time
 import httpx
 from . import config
 
 class ProxyUnavailable(RuntimeError):
     pass
 
+def norm_proxy(p):
+    """把代理串规整成 httpx 能用的 URL。
+
+    兼容提取接口的两种返回：`1.2.3.4:8080`（无 scheme）与 `1.2.3.4:8080,281`
+    （带 ip_remain 剩余秒数后缀）。也保留 `http://user:pass@host:port` 形式。
+    """
+    if not p: return None
+    p = p.strip().split(",")[0].strip()
+    return p if "://" in p else f"http://{p}"
+
 class ProxyPool:
-    def __init__(self, static=None, url=None):
+    def __init__(self, static=None, url=None, ttl=0):
         self.static, self.url, self._lock = list(static or []), url, threading.Lock()
         self._cycle = None
+        self.ttl = ttl     # >0 时按秒定时重取（短效代理 IP 会过期）
+        self._at = 0.0
     def refresh(self):
         proxies = list(self.static)
         if self.url:
             try:
                 r = httpx.get(self.url, timeout=10)
-                proxies += [ln.strip() for ln in r.text.splitlines() if ln.strip()]
+                # 提取接口可能一行一个，也可能 `ip:port,剩余秒数`（ip_remain）。按空白切分，
+                # 再逐条去掉逗号后缀——不能直接把逗号换成换行，否则剩余秒数会被当成一个代理。
+                proxies += [tok.split(",")[0].strip() for tok in r.text.split() if tok.strip()]
             except httpx.HTTPError:
                 pass
+        proxies = [p for p in proxies if p]
         random.shuffle(proxies)
         with self._lock:
             self._cycle = itertools.cycle(proxies) if proxies else None
+            self._at = time.time()
     def get(self):
-        if self._cycle is None: self.refresh()
+        if self._cycle is None or (self.ttl and time.time() - self._at > self.ttl):
+            self.refresh()
         with self._lock:
             return next(self._cycle) if self._cycle else None
 
@@ -77,8 +94,10 @@ class CrawlClient(httpx.Client):
                 "ctype": resp.headers.get("content-type", ""), "body": resp.content}, upsert=True)
         return resp
 
-def client(use_proxy=True, headers=None, cache=True, **kw) -> httpx.Client:
-    proxy = pool.get() if (use_proxy or config.PROXY_REQUIRED) else None
+def client(use_proxy=True, headers=None, cache=True, proxy=None, pool_=None, **kw) -> httpx.Client:
+    """proxy= 显式指定出口（如按平台走不同地域的池）；pool_= 换一个池来取出口。"""
+    p = pool_ or pool
+    proxy = norm_proxy(proxy) or (p.get() if (use_proxy or config.PROXY_REQUIRED) else None)
     if config.PROXY_REQUIRED and not proxy:
         raise ProxyUnavailable("PROXY_REQUIRED=1 但代理池为空，拒绝直连")
     h = {"User-Agent": config.USER_AGENT, "Accept-Encoding": "gzip, deflate", **(headers or {})}
