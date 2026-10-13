@@ -145,6 +145,19 @@ def test_ldxp_gets_own_cn_egress(monkeypatch):
     assert pipeline._egress_kw({"_id": "ldxp:oak", "platform": "ldxp"}) == {}
 
 
+def test_cn_relay_parse_upstream():
+    """中转代理要能吃两种上游写法：裸 ip:port 和带鉴权的 URL。"""
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location("cn_relay", Path(__file__).resolve().parents[1] / "scripts" / "cn_relay.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    assert m.parse_upstream("http://1.2.3.4:8080") == (("1.2.3.4", 8080), None)
+    assert m.parse_upstream("1.2.3.4:9090") == (("1.2.3.4", 9090), None)
+    assert m.parse_upstream("http://u:p@1.2.3.4:8080") == (("1.2.3.4", 8080), "u:p")
+    assert m.parse_upstream("http://1.2.3.4") == (("1.2.3.4", 80), None)
+
+
 def test_cycle_lease_lock():
     from app import pipeline, store
     store.db().locks.delete_many({})
