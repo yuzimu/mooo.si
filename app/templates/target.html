@@ -9,7 +9,7 @@
       <p class="mt-1 font-mono text-sm text-slate-500">{{ t.host }}</p>
       <div class="mt-3 flex flex-wrap gap-1.5 text-xs">
         {% if t.platform %}<span class="rounded bg-sky-500/10 px-2 py-0.5 font-medium text-sky-600 dark:text-sky-400">{{ t.platform }}</span>{% endif %}
-        <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-500 dark:bg-white/5">状态：{{ t.status }}</span>
+        <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-500 dark:bg-white/5">状态：{{ t.status_label or '正常' }}</span>
         <span class="rounded bg-slate-100 px-2 py-0.5 text-slate-500 dark:bg-white/5">提及 {{ t.mentions or 0 }} 次</span>
         {% for s in (t.sources or {}).keys() %}<span class="rounded bg-slate-100 px-2 py-0.5 text-slate-500 dark:bg-white/5">{{ s }}</span>{% endfor %}
       </div>

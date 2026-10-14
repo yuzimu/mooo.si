@@ -144,11 +144,46 @@ def ensure_indexes():
     for d in col.find({"slug": {"$exists": False}}, {"_id": 1}):
         col.update_one({"_id": d["_id"]}, {"$set": {"slug": slugify(d["_id"])}})
 
-def search(type=None, q=None, platform=None, status=None, limit=60, skip=0):
+# 公开视图只有两种状态：正常 / 下架。
+#   - 下架：确认已下架（item_gone）
+#   - 正常：其余一切「在收录里」的目标。抓取失败、不可达、未知平台、滑块、CF 盾、
+#     待识别……全是**我们自己的管线状态**，不是店铺下架的证据，一律折叠成「正常」，
+#     既不显示这些词，也不因为一次抓取失败就把店铺从目录里摘掉。
+#   - ignored：我们主动不要的目标（不是店铺、已剔除），整个不进公开视图。
+PUBLIC_STATUSES = ("ok", "gone")
+PUBLIC_LABEL = {"ok": "正常", "gone": "下架"}
+PUBLIC_GONE = ("item_gone",)
+PUBLIC_HIDDEN = ("ignored",)
+
+
+def public_status(st):
+    """内部状态 → 公开状态（ok / gone）；整个不公开的返回 None。"""
+    if st in PUBLIC_HIDDEN:
+        return None
+    return "gone" if st in PUBLIC_GONE else "ok"
+
+
+def _public_filter(status=None):
+    """公开视图的状态过滤：没指定就取全部公开目标，指定了只取该类。"""
+    if status == "gone":
+        return {"$in": list(PUBLIC_GONE)}
+    if status == "ok":
+        return {"$nin": list(PUBLIC_GONE) + list(PUBLIC_HIDDEN)}
+    return {"$nin": list(PUBLIC_HIDDEN)}
+
+
+def public_status_counts(**match):
+    """公开视图的状态计数：{ok: n, gone: n}，内部状态不外泄。"""
+    col = store.db().targets
+    return {k: col.count_documents({**match, "status": _public_filter(k)}) for k in PUBLIC_STATUSES}
+
+
+def search(type=None, q=None, platform=None, status=None, limit=60, skip=0, public=False):
     f = {}
     if type: f["type"] = type
     if platform: f["platform"] = platform
-    if status: f["status"] = status
+    if public: f["status"] = _public_filter(status)
+    elif status: f["status"] = status
     else: f["status"] = {"$ne": "ignored"}   # 已剔除目标默认不展示
     if q: f["$or"] = [{"_id": {"$regex": re.escape(q.lower())}}, {"name": {"$regex": re.escape(q), "$options": "i"}},
                       {"sample": {"$regex": re.escape(q), "$options": "i"}}]

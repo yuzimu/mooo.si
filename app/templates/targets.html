@@ -1,9 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ title }} · mooo.si{% endblock %}
 {% macro tq() -%}?{% set p = {'q': q, 'platform': platform, 'status': status} %}{% for k, v in kwargs.items() %}{% set _ = p.update({k: v}) %}{% endfor %}{% for k, v in p.items() if v %}{{ k }}={{ v | urlencode }}&{% endfor %}{%- endmacro %}
-{% set STATUS = {'monitored': ('监控中', 'emerald'), 'ok': ('已识别', 'sky'), 'new': ('待识别', 'slate'), 'unknown': ('未知平台', 'slate'),
-                 'blocked_captcha': ('滑块验证·跳过', 'amber'), 'blocked_cf': ('CF 盾·跳过', 'amber'), 'down': ('不可达', 'rose'),
-                 'error': ('抓取失败', 'rose'), 'private': ('私有群组', 'violet'), 'item_gone': ('已下架', 'slate')} %}
+{% set STATUS = {'ok': ('正常', 'emerald'), 'gone': ('下架', 'slate')} %}
 {% block main %}
 <section class="mx-auto max-w-7xl px-4 pt-12 sm:px-6">
   <div class="flex flex-wrap items-end justify-between gap-4">
@@ -24,7 +22,7 @@
     <div class="no-scrollbar flex items-center gap-1.5 overflow-x-auto">
       <span class="shrink-0 text-xs text-slate-400">状态</span>
       <a href="{{ tq(status='', page='') }}" class="shrink-0 rounded-full px-3 py-1 text-xs font-medium {{ 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' if not status else 'bg-white ring-1 ring-slate-200 dark:bg-white/5 dark:ring-white/10' }}">全部</a>
-      {% for s, n in status_counts.items() %}{% set lab = STATUS.get(s, (s, 'slate')) %}
+      {% for s, n in status_counts.items() if s in STATUS %}{% set lab = STATUS[s] %}
       <a href="{{ tq(status=s, page='') }}" class="shrink-0 rounded-full px-3 py-1 text-xs font-medium {{ 'bg-slate-900 text-white dark:bg-white dark:text-slate-900' if status == s else 'bg-white ring-1 ring-slate-200 dark:bg-white/5 dark:ring-white/10' }}">{{ lab[0] }} <span class="font-mono opacity-60">{{ n }}</span></a>{% endfor %}
     </div>
     {% if platforms %}<div class="no-scrollbar flex items-center gap-1.5 overflow-x-auto">
@@ -41,7 +39,7 @@
   </div>{% endif %}
 
   <div class="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-    {% for t in items %}{% set st = STATUS.get(t.status or 'new', (t.status, 'slate')) %}{% set h = t.health or {} %}
+    {% for t in items %}{% set st = STATUS.get(t.pub, ('正常', 'slate')) %}{% set h = t.health or {} %}
     <article class="flex flex-col rounded-2xl border border-slate-200 bg-white/80 p-4 dark:border-white/[.07] dark:bg-ink-900/60">
       <div class="flex items-start gap-3">
         <span class="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-violet-500/15 to-sky-500/10 text-violet-600 ring-1 ring-violet-500/20 dark:text-violet-300"><i data-lucide="{{ icon }}" class="h-4 w-4"></i></span>

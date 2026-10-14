@@ -21,8 +21,11 @@ def index_targets(limit=50000):
 
 
 def _target_filter(kind, q):
+    from . import targets
     qt = query_tokens(q)
-    f = {"type": TARGET_TYPE[kind], "status": {"$ne": "ignored"}}
+    # 搜索结果和列表页一个口径：只出「正常 / 下架」，内部状态（抓取失败、不可达、
+    # 未知平台、滑块、ignored…）不进搜索。
+    f = {"type": TARGET_TYPE[kind], "status": targets._public_filter()}
     rx = re.escape(q.strip().lower())
     f["$or"] = [{"kw": {"$all": qt}}] if qt else []
     f["$or"] += [{"_id": {"$regex": rx}}, {"name": {"$regex": rx, "$options": "i"}}]

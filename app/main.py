@@ -76,7 +76,9 @@ def api_search(q: str = "", type: str | None = None, page: int = Query(1, ge=1),
     def ser(g, x):
         if g == "offers": return store.to_json(x)
         if g in usearch.TARGET_TYPE:
-            return {k: x.get(k) for k in ("_id", "url", "name", "type", "platform", "status", "mentions", "slug")}
+            st = targets.public_status(x.get("status")) or "ok"
+            return {**{k: x.get(k) for k in ("_id", "url", "name", "type", "platform", "mentions", "slug")},
+                    "status": st, "status_label": targets.PUBLIC_LABEL.get(st, "")}
         if g == "models":
             return {"family": x["family"], "bucket": x["bucket"], "min_cny": x["min"], "unit": x["unit"], "sites": x["sites"]}
         return x
@@ -177,7 +179,7 @@ def _target_ctx(kind, q, platform, status, page):
     base = config.SITE_URL
     ctx["seo"] = {"title": f"{ctx['title']}监控列表（{ctx['total']}）· mooo.si",
                   "description": f"mooo.si 自动发现并监控的{ctx['title']}：共 {ctx['total']} 个，含平台识别、状态与报价数量，每 2 小时巡检。",
-                  "canonical": f"{base}/{kind}", "noindex": bool(q or platform or status or page > 1),
+                  "canonical": f"{base}/{kind}", "noindex": bool(q or platform or ctx["status"] or page > 1),
                   "jsonld": [{"@context": "https://schema.org", "@type": "ItemList", "name": ctx["title"],
                               "itemListElement": [{"@type": "ListItem", "position": i + 1, "name": t.get("name") or t.get("slug"),
                                                    "url": f"{base}/{TYPE_PATH.get(t.get('type'), 'site')}/{t.get('slug')}"}
@@ -187,13 +189,17 @@ def _target_ctx(kind, q, platform, status, page):
 def _target_ctx_inner(kind, q, platform, status, page):
     ttype, title, icon = TARGET_PAGES[kind]
     per = 30
-    items, total = targets.search(type=ttype, q=q or None, platform=platform or None, status=status or None,
-                                  limit=per, skip=(max(page, 1) - 1) * per)
-    plats = sorted({d for d in store.db().targets.distinct("platform", {"type": ttype}) if d})
-    stats = list(store.db().targets.aggregate([{"$match": {"type": ttype}}, {"$group": {"_id": "$status", "n": {"$sum": 1}}}]))
+    # 公开页面只认「正常 / 下架」两种状态；传其它值（哪怕是我们内部的 blocked_captcha）
+    # 一律当没传，绝不把内部状态回显到 URL 或页面上。
+    pub = status if status in targets.PUBLIC_STATUSES else ""
+    items, total = targets.search(type=ttype, q=q or None, platform=platform or None, status=pub or None,
+                                  limit=per, skip=(max(page, 1) - 1) * per, public=True)
+    for t in items:
+        t["pub"] = targets.public_status(t.get("status"))
+    plats = sorted({d for d in store.db().targets.distinct("platform", {"type": ttype, "status": targets._public_filter()}) if d})
     return {"kind": kind, "title": title, "icon": icon, "items": items, "total": total, "q": q, "platform": platform,
-            "status": status, "page": max(page, 1), "per": per, "platforms": plats,
-            "status_counts": {d["_id"] or "new": d["n"] for d in stats}}
+            "status": pub, "page": max(page, 1), "per": per, "platforms": plats,
+            "status_counts": targets.public_status_counts(type=ttype)}
 
 @app.get("/shops")
 def shops_page(request: Request, q: str = "", platform: str = "", status: str = "", page: int = 1):
@@ -210,11 +216,18 @@ def tg_page(request: Request, q: str = "", platform: str = "", status: str = "",
 @app.get("/api/targets")
 def api_targets(type: str = "", q: str = "", platform: str = "", status: str = "",
                 limit: int = Query(50, le=500), offset: int = Query(0, ge=0)):
-    items, total = targets.search(type=type or None, q=q or None, platform=platform or None, status=status or None,
-                                  limit=limit, skip=offset)
+    # 公开 API 同样只暴露「正常 / 下架」：内部状态（blocked_captcha / error / ignored…）不出网，
+    # status 归一成 ok|gone，中文标签放 status_label。
+    pub = status if status in targets.PUBLIC_STATUSES else ""
+    items, total = targets.search(type=type or None, q=q or None, platform=platform or None, status=pub or None,
+                                  limit=limit, skip=offset, public=True)
+    out = []
     for d in items:
         d["id"] = d.pop("_id"); d.pop("history", None); d.pop("refs", None)
-    return {"total": total, "items": items}
+        d["status"] = targets.public_status(d.get("status")) or "ok"
+        d["status_label"] = targets.PUBLIC_LABEL.get(d["status"], "")
+        out.append(d)
+    return {"total": total, "items": out}
 
 
 @app.get("/c/{category}")
@@ -226,6 +239,10 @@ def category_page(request: Request, category: str, in_stock: bool = False, sort:
 def _target_page(request, typ, slug):
     t = store.db().targets.find_one({"slug": slug, "type": typ}) if typ else store.db().targets.find_one({"slug": slug})
     if not t: raise HTTPException(404)
+    # 不公开的状态（ignored / 抓取失败 / 不可达 / 滑块…）连详情页也不给看，直接 404
+    t["pub"] = targets.public_status(t.get("status"))
+    if not t["pub"]: raise HTTPException(404)
+    t["status_label"] = targets.PUBLIC_LABEL.get(t["pub"], "")
     t["host"] = urlsplit(t["url"]).hostname
     offers = [store._ns(d) for d in store.db().offers.find({"target": t["_id"], "dup": {"$ne": True}, "ignored": {"$ne": True}},
                                                               {"kw": 0}).sort("price", 1).limit(500)]
@@ -338,7 +355,8 @@ def sitemap():
             (f"{base}/tg", "daily", "0.6"), (f"{base}/about", "monthly", "0.3"), (f"{base}/models", "daily", "0.7")]
     used = set(store.db().offers.distinct("category", {"dup": {"$ne": True}, "ignored": {"$ne": True}}))
     urls += [(f"{base}/c/{c}", "daily", "0.7") for c in CATEGORIES if c in used]
-    for t in store.db().targets.find({"$or": [{"health.offers": {"$gt": 0}}, {"health.models": {"$gt": 0}}]},
+    for t in store.db().targets.find({"$or": [{"health.offers": {"$gt": 0}}, {"health.models": {"$gt": 0}}],
+                                      "status": targets._public_filter()},
                                      {"slug": 1, "type": 1}).limit(20000):
         urls.append((f"{base}/{TYPE_PATH.get(t.get('type'), 'site')}/{t['slug']}", "daily", "0.5"))
     body = "".join(f"<url><loc>{escape(u)}</loc><lastmod>{now}</lastmod><changefreq>{f}</changefreq><priority>{p}</priority></url>"

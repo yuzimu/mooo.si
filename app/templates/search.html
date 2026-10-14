@@ -39,7 +39,7 @@
       <li class="flex items-center justify-between gap-3 px-4 py-3">
         <div class="min-w-0 flex-1"><a href="{{ x.slug | target_path(x.type) if x.slug else (x.url | go) }}" class="block truncate text-sm font-medium text-slate-800 hover:underline dark:text-slate-100">{{ x.name or x._id.split(':',1)[-1] }}</a>
           <p class="mt-0.5 truncate font-mono text-xs text-slate-500">{{ x.url }}</p></div>
-        <div class="w-24 shrink-0 text-right text-xs text-slate-500">{{ x.platform or '未知平台' }}<br>{{ x.status }} · 提及 {{ x.mentions or 0 }}</div>
+        <div class="w-24 shrink-0 text-right text-xs text-slate-500">{{ x.platform or '未知平台' }}<br>{{ x.status_label or '正常' }} · 提及 {{ x.mentions or 0 }}</div>
       </li>
       {% elif g == 'models' %}
       <li class="flex items-center justify-between gap-3 px-4 py-3">

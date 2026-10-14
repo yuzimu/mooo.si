@@ -60,3 +60,42 @@ def test_crawl_search_and_web():
     assert "Leonardo" in c.get("/").text
     assert c.get("/?section=relay", follow_redirects=False).status_code == 302
     assert "生图" in c.get("/models").text or "模型" in c.get("/models").text
+
+
+def test_public_only_ok_and_gone():
+    """公开页面与 API 只有「正常 / 下架」两种状态。
+
+    抓取失败、不可达、未知平台、滑块、CF 盾、待识别这些是我们的管线状态，不是店铺下架的
+    证据 —— 一律折叠成「正常」且不显示这些词，也不因为一次抓取失败就把店铺从目录里摘掉。
+    只有 ignored（我们主动不要的，比如非店铺的 item 页）整个不进公开视图。
+    """
+    from app import targets
+    db = store.db(); db.client.drop_database("mooo_test"); store.ensure_indexes()
+    for tid, st in [("ldxp:ok1", "monitored"), ("ldxp:ok2", "monitored"), ("ldxp:gone1", "item_gone"),
+                    ("ldxp:err", "error"), ("ldxp:cap", "blocked_captcha"), ("ldxp:down", "down"),
+                    ("ldxp:unk", "unknown"), ("ldxp:ign", "ignored")]:
+        db.targets.insert_one({"_id": tid, "type": "card_shop", "platform": "ldxp", "status": st,
+                               "url": f"https://x.example/{tid.split(':')[1]}", "slug": tid.replace(":", "-")})
+    assert targets.public_status("monitored") == "ok" and targets.public_status("item_gone") == "gone"
+    assert targets.public_status("error") == "ok" and targets.public_status("down") == "ok"
+    assert targets.public_status("ignored") is None
+    assert targets.public_status_counts(type="card_shop") == {"ok": 6, "gone": 1}
+
+    c = TestClient(app)
+    r = c.get("/api/targets", params={"type": "card_shop"}).json()
+    assert r["total"] == 7 and {i["status"] for i in r["items"]} == {"ok", "gone"}   # ignored 不进公开结果
+    assert all(i["status_label"] in ("正常", "下架") for i in r["items"])
+    assert "ignored" not in c.get("/api/targets", params={"type": "card_shop"}).text
+
+    html = c.get("/shops").text
+    for leak in ("抓取失败", "不可达", "滑块验证", "CF 盾", "未知平台", "monitored", "blocked_captcha", "item_gone"):
+        assert leak not in html, f"页面泄漏内部状态：{leak}"
+    assert "正常" in html and "下架" in html
+    assert "下架" in c.get("/shops", params={"status": "gone"}).text        # 公开筛选可用
+    assert "抓取失败" not in c.get("/shops", params={"status": "error"}).text  # 内部状态筛选不回显
+
+    assert c.get("/shop/ldxp-ign").status_code == 404        # 主动剔除的目标不给看
+    assert c.get("/shop/ldxp-ok1").status_code == 200
+    assert c.get("/shop/ldxp-gone1").status_code == 200
+    assert c.get("/shop/ldxp-err").status_code == 200        # 抓取失败仍是正常店铺，页面要能开
+    db.client.drop_database("mooo_test")
