@@ -32,8 +32,13 @@ def main() -> int:
             continue
         store.save_target_offers(tid, r.get("offers") or [])
         name = (r.get("note") or "").strip() or None
+        # 注意：upsert 插入时必须把 platform/type/url 一起写上，否则新目标只有 _id+status，
+        # 各种按 platform 过滤的统计/展示都看不到它（第一版漏了这三个字段）。
+        token = tid.split(":", 1)[1] if ":" in tid else tid
         col.update_one({"_id": tid}, {
-            "$set": {"status": "monitored", "name": name,
+            "$set": {"platform": "ldxp", "type": "card_shop",
+                     "url": r.get("url") or f"https://pay.ldxp.cn/shop/{token}",
+                     "status": "monitored", "name": name,
                      "fp": {"platform": "ldxp", "status": "ok", "name": name},
                      "fp_at": store.now(),
                      "health": {"at": store.now(), "ok": True, "offers": len(r.get("offers") or []), **(r.get("meta") or {})}},
