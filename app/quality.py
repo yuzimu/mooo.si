@@ -10,11 +10,29 @@ JUNK_TITLE = re.compile(
     r"(教程|须知必看|购买须知|售后须知|使用说明|下单前必|请先看|看完再买|温馨提示|公告|通知|"
     r"测试商品|测一测|勿拍|不要拍|仅测试|占位|示例|demo\b|sample\b|"
     r"充值教程|开通教程|绑定教程|如何使用|怎么用|补差价|差价专用|附加商品|邮费)", re.I)
+# 科普帖 / 渠道说明 / 微信引流 / 纯图文非商品（首页广告墙）
+JUNK_ADS = re.compile(
+    r"(科普|常见问题|\bfaq\b|渠道说明|寿命.{0,12}渠道|延迟到账|"
+    r"找微|加微|薇信|微信\s*[:：]?\s*[a-z0-9_-]{4,}|"
+    r"充值找|联系微信|全流程讲解|羊毛党|无卡筛|"
+    r"获取.{0,12}方式\s*[:：]|风控系统|购买指南|使用指南|"
+    r"必看帖|说明帖|仅文字|仅图文|不含账号)", re.I)
+JUNK_TAG = re.compile(r"(科普|article|常见问题|\bfaq\b|指南|须知)", re.I)
 JUNK_ZERO = re.compile(r"(免费领取|0元购|零元|面议|联系客服询价)", re.I)
+
+def _offer_tags(o: dict) -> list[str]:
+    tags = o.get("tags") or []
+    if isinstance(tags, str):
+        return [tags]
+    return [str(t) for t in tags if t is not None]
 
 def is_junk(o: dict) -> str | None:
     title = (o.get("title") or "") + " " + (o.get("product") or "")
     if JUNK_TITLE.search(title): return "教程/须知/公告/测试类非商品"
+    if JUNK_ADS.search(title): return "科普/广告/说明帖非商品"
+    for t in _offer_tags(o):
+        if JUNK_TAG.search(t):
+            return "标签为科普/指南/article类"
     if re.fullmatch(r"\s*(测试|test|tests?|测试\d*|111+|aaa+|123+)\s*", o.get("title") or "", re.I): return "测试占位"
     price = o.get("price")
     if price is not None and price <= 0:
