@@ -42,7 +42,7 @@ def main() -> int:
                      "fp": {"platform": "ldxp", "status": "ok", "name": name},
                      "fp_at": store.now(),
                      "health": {"at": store.now(), "ok": True, "offers": len(r.get("offers") or []), **(r.get("meta") or {})}},
-            "$unset": {"ldxp_canary_blocked": ""}}, upsert=True)
+            "$unset": {"ldxp_canary_blocked": "", "ignored_reason": ""}}, upsert=True)
         ok += 1
         offers += len(r.get("offers") or [])
     print(f"导入完成：目标 {ok} 个，报价 {offers} 条；跳过 {len(skipped)} 条未成功记录")
