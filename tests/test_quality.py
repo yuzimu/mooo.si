@@ -19,6 +19,36 @@ def test_categorizer_accuracy():
     assert len({k.split(":")[0] for k in keys}) == 1 and all(k.startswith("gmail") for k in keys)
 
 
+
+def test_is_junk_ads_and_tutorials():
+    """首页广告/科普/找微引流应 junk；正常定价商品保留。"""
+    junk_cases = [
+        ("获取Plus方式：印度区UPI完成订阅", {"tags": ["科普", "article"]}),
+        ("G羊毛党与OpenAI的风控系统_科普版", {"tags": ["科普"]}),
+        ("日区PP无卡筛Plus教程", {}),
+        ("GPT 成品号寿命和渠道说明", {}),
+        ("plus延迟到账问题", {"tags": ["常见问题", "article"]}),
+        ("需要PLUS充值找微seven9485777", {}),
+        ("学生优惠活动全流程讲解", {}),
+        ("纯说明帖仅图文不含账号", {}),
+        ("随便什么标题", {"tags": ["article"]}),
+        ("购买指南请先阅读", {}),
+    ]
+    for title, extra in junk_cases:
+        o = {"title": title, "price": 10, **extra}
+        assert is_junk(o), title
+
+    keep = [
+        "bugteam invite ChatGPT Plus",
+        "Gplus质保成品号",
+        "Team K12 席位",
+        "codex橙皮书 成品号",
+        "Claude Pro 代充",
+    ]
+    for title in keep:
+        assert not is_junk({"title": title, "price": 99}), title
+
+
 def test_off_shelf_patterns():
     assert classify_page(200, "<html>商品未上架，如有疑问请联系商家</html>", "错图小铺") == "off_shelf"
     assert classify_page(200, "商品已下架或不存在") == "off_shelf"
